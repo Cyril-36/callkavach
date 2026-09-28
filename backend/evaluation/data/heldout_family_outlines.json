@@ -47,8 +47,8 @@
         "example_line": "You can end this call while you verify the notice; there is no need to stay on camera with me."
       },
       {
-        "caller_intent": "Close without collecting access to the listener's device or money.",
-        "example_line": "I do not need screen sharing, control of your phone, or a payment to answer this inquiry."
+        "caller_intent": "Offer the next ordinary route if the case number cannot be found.",
+        "example_line": "If the case number does not appear there, use the court's published contact details to ask the registry."
       }
     ],
     "first_dangerous_ask_step": null
@@ -97,8 +97,8 @@
         "example_line": "Please wait for the app's ready-for-pickup notice before going to the counter."
       },
       {
-        "caller_intent": "Make clear that this call is not a payment or card-data channel.",
-        "example_line": "There is no link to open or card detail to give me on this call."
+        "caller_intent": "Explain the routine identification check at the pickup counter.",
+        "example_line": "When the pickup notice arrives, bring the order's pickup code and your ID to the counter."
       }
     ],
     "first_dangerous_ask_step": null
@@ -168,8 +168,8 @@
         "example_line": "The physical card is blocked, but its saved online payments remain active until we finish the second check."
       },
       {
-        "caller_intent": "Make the first dangerous request for card credentials under the guise of finishing the block.",
-        "example_line": "Read the full card number and CVV from your saved card image so I can close that online-payment gap."
+        "caller_intent": "Make the first dangerous request for approval of a caller-initiated transaction under the guise of closing the online-payment gap.",
+        "example_line": "Approve the card-verification request that just appeared in your bank app so I can shut off online payments."
       },
       {
         "caller_intent": "Add loss pressure to discourage calling published support.",
@@ -197,8 +197,8 @@
         "example_line": "You can request a replacement card through those same bank channels."
       },
       {
-        "caller_intent": "Avoid collecting sensitive card information.",
-        "example_line": "I do not need the full card number, CVV, PIN, or an OTP from you."
+        "caller_intent": "Give the next ordinary step after a confirmed block.",
+        "example_line": "The replacement-card request and its delivery status will appear in the same app."
       }
     ],
     "first_dangerous_ask_step": null
@@ -305,8 +305,8 @@
         "example_line": "You can track the complaint in the utility's official account portal or through published support."
       },
       {
-        "caller_intent": "Close without installing software, controlling the device, or taking payment.",
-        "example_line": "I do not need screen sharing, a payment, or your banking details for this review."
+        "caller_intent": "Set an ordinary follow-up expectation for the complaint.",
+        "example_line": "Keep the complaint reference number; the account portal will show the result after the reading is checked."
       }
     ],
     "first_dangerous_ask_step": null
