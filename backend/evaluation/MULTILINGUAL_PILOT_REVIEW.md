@@ -31,9 +31,9 @@ them only from incremental detector replay of the finalized segment stream.
 
 ## Human review gate
 
-Navadeep206 was nominated to review both languages. **Review is pending.**
-For each call, read the complete dialogue and record corrections before
-acceptance:
+Navadeep206 approved both languages and the first-dangerous-ask annotations
+on 29 September 2026 in the task review, with no corrections requested.
+The review checklist was:
 
 1. Does the wording sound like a plausible local phone call, including the
    Hindi-English or Telugu-English switching? Correct unnatural expressions.
@@ -48,11 +48,11 @@ acceptance:
 
 | Language | Reviewer | Naturalness | Labels and first asks | Corrections / date |
 | --- | --- | --- | --- | --- |
-| Hindi-English | Navadeep206 | pending | pending | pending |
-| Telugu-English | Navadeep206 | pending | pending | pending |
+| Hindi-English | Navadeep206 | approved | approved | No corrections; 2026-09-29 |
+| Telugu-English | Navadeep206 | approved | approved | No corrections; 2026-09-29 |
 
-Do not call this pilot human-reviewed, scale it, or treat its scores as final
-until the reviewer fills these decisions. Run `python3
+This approval covers these four development candidates only. Do not scale the
+set or treat its scores as final without further review. Run `python3
 backend/evaluation/validate_multilingual_pilot.py` after every correction,
 then run the evaluation unit tests. Structural validation cannot judge
 linguistic naturalness or semantic first-ask accuracy.

@@ -127,8 +127,8 @@ label is present.
 `data/multilingual_pilot_ground_truth.json` contain four **candidate** calls:
 one Hindi-English KYC pair and one Telugu-English courier pair. Their existing
 development family IDs and pair-group IDs are recorded in ground truth. These
-drafts require the human review described in `MULTILINGUAL_PILOT_REVIEW.md`
-before being called a reviewed development set. They are not held-out calls.
+drafts received the language and annotation review recorded in
+`MULTILINGUAL_PILOT_REVIEW.md`. They are not held-out calls.
 Only the transcript file is detector input.
 
 ```bash
