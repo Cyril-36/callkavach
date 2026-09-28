@@ -11,3 +11,5 @@ To try the page, serve this folder over localhost (microphone access needs a sec
 ```bash
 python3 -m http.server 8765 --bind 127.0.0.1 -d frontend/spike
 ```
+
+Lifecycle tests (browser only, synthetic microphone): with that server running, open http://127.0.0.1:8765/lifecycle.test.html. The page title reads `ALL PASSED` when Start → Stop → Start, a forced `source.connect` failure and a rejected `ctx.close()` all leave the microphone released and Start usable.
