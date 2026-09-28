@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 
 import pytest
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 import audio_ws
+from detector import VerifierError as VerifierErrorForTest
 from stt_provider import ProviderError
 
 START = {"type": "start", "encoding": "pcm_s16le", "channels": 1, "sample_rate": 16000, "language_code": "te-IN"}
@@ -89,10 +91,38 @@ def use_provider(monkeypatch, **kwargs):
     monkeypatch.setattr(audio_ws, "connect_provider", connect)
 
 
+class RecordingVerifier:
+    """Detector verifier for relay tests. respond(request) -> findings; records every request."""
+
+    instances = []
+
+    def __init__(self, respond=None):
+        self.respond = respond or (lambda request: [])
+        self.requests = []
+        self.closed = False
+        RecordingVerifier.instances.append(self)
+
+    async def analyse(self, request):
+        self.requests.append(request)
+        result = self.respond(request)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    async def close(self):
+        self.closed = True
+
+
+def use_verifier(monkeypatch, respond=None):
+    monkeypatch.setattr(audio_ws, "verifier_factory", lambda: (RecordingVerifier(respond), None))
+
+
 @pytest.fixture(autouse=True)
 def default_provider(monkeypatch):
     FakeProvider.instances.clear()
+    RecordingVerifier.instances.clear()
     use_provider(monkeypatch)
+    use_verifier(monkeypatch)  # never the real Gemini configuration in tests
     monkeypatch.setattr(audio_ws, "FINALIZE_SETTLE_S", 0.05)
     monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 2.0)
 
@@ -621,3 +651,93 @@ def test_untrusted_host_or_origin_is_refused_before_any_provider_session(client,
     assert refused.value.code == 1008
     assert calls == [], "connect_provider was called for a refused request"
     assert audio_ws.active_sessions == 0
+
+
+# --- scam-tactic detector integration ---
+
+def speak_lines(*lines):
+    """Fake provider callback: one utterance per audio frame, each with its final transcript."""
+    def on_audio(p, total):
+        i = total // 3200 - 1
+        if 0 <= i < len(lines):
+            p.emit(signal("START_SPEECH"), signal("END_SPEECH"), data(f"utt-{i}", lines[i]))
+    return on_audio
+
+
+def test_final_segments_reach_the_detector_and_risk_is_forwarded(client, monkeypatch):
+    def respond(request):
+        new = [s for s in request["segments"] if s["new"]]
+        return [{"tactic": "credential_request", "status": "present", "segment_id": s["segment_id"],
+                 "quote": "OTP आया है वो बताइए"} for s in new if "OTP" in s["text"]]
+    use_verifier(monkeypatch, respond)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = speak_lines("मैं State Bank से बोल रहा हूँ", "अभी जो OTP आया है वो बताइए")
+        provider.on_flush = lambda p: None
+        stopped, events = stop_and_collect(ws, frames=2)
+    risks = [e for e in events if e["type"] == "risk"]
+    assert risks and risks[-1]["level"] == "red" and risks[-1]["analysis"] == "ok"
+    assert risks[-1]["tactics"][0]["evidence"][0]["quote"] == "OTP आया है वो बताइए"
+    assert stopped["analysis"]["status"] == "complete" and stopped["analysis"]["level"] == "red"
+    requests = RecordingVerifier.instances[0].requests
+    assert [s["segment_id"] for s in requests[-1]["segments"]] == ["utt-0", "utt-1"]
+    blob = json.dumps(requests)
+    assert "speaker" not in blob and "language_code" not in blob and "processing_latency" not in blob
+    wait_until(lambda: RecordingVerifier.instances[0].closed, "verifier not closed")
+
+
+def test_detector_unavailable_is_reported_at_start_and_in_stopped(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "verifier_factory", lambda: (None, "GEMINI_API_KEY is not configured on the server"))
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        risk, _ = receive_until(ws, "risk")
+        stopped, _ = stop_and_collect(ws)
+    assert risk["analysis"] == "unavailable" and "GEMINI_API_KEY" in risk["error"] and risk["level"] == "none"
+    assert stopped["analysis"] == {"status": "unavailable", "error": "GEMINI_API_KEY is not configured on the server"}
+    assert stopped["transcription"] == "complete", "transcription completeness is reported separately"
+
+
+def test_detector_failure_is_visible_and_stop_reports_analysis_incomplete(client, monkeypatch):
+    use_verifier(monkeypatch, lambda request: VerifierErrorForTest("Gemini HTTP 429: quota"))
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = speak_lines("hello sir")
+        provider.on_flush = lambda p: None
+        stopped, events = stop_and_collect(ws)
+    risk = [e for e in events if e["type"] == "risk"][-1]
+    assert risk["analysis"] == "unavailable" and "429" in risk["error"]
+    assert stopped["analysis"]["status"] == "incomplete" and stopped["transcription"] == "complete"
+
+
+def test_stop_waits_for_analysis_of_the_flushed_segment(client, monkeypatch):
+    use_verifier(monkeypatch)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        stopped, events = stop_and_collect(ws)  # default fake: the only final arrives on flush
+    assert any(e["type"] == "risk" for e in events), "flushed segment was not analysed before stopped"
+    assert stopped["analysis"]["status"] == "complete" and stopped["analysis"]["analysed_segments"] == 1
+
+
+def test_empty_and_duplicate_finals_are_not_sent_to_the_detector(client, monkeypatch):
+    use_verifier(monkeypatch)
+
+    def on_audio(p, total):
+        p.emit(signal("START_SPEECH"), data("a", "hello"), data("a", "hello"), signal("START_SPEECH"), data("b", "  "))
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = on_audio
+        FakeProvider.instances[0].on_flush = lambda p: None
+        stop_and_collect(ws)
+    ids = [s["segment_id"] for r in RecordingVerifier.instances[0].requests for s in r["segments"]]
+    assert ids == ["a"]
+
+
+def test_detector_is_closed_when_the_client_disconnects(client):
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        ws.send_bytes(b"\x00\x00" * 1600)
+        receive_until(ws, "ack")
+    wait_for_no_sessions()
+    wait_until(lambda: RecordingVerifier.instances[0].closed, "verifier not closed after disconnect")

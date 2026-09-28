@@ -22,7 +22,7 @@ Add `--model saaras:v4` to compare models. Exit code: 0 all succeeded, 1 an API 
 **Local-spike security.** `/ws/audio` accepts only a `Host` of `localhost`, `127.0.0.1` or `[::1]` (any port), which stops DNS rebinding, where an attacker's domain resolves to 127.0.0.1 and sends a matching `Host` and `Origin` of its own. A browser `Origin` must then name exactly that host and port (default ports 80/443 apply). Anything else is refused with HTTP 403 before any Sarvam session opens. Clients that send no `Origin`, such as `relay_smoke.py`, are allowed on a trusted `Host`. Open the page and run the CLI through the same host name you use (`127.0.0.1` and `localhost` are different origins). This only stops other websites from using a visitor's browser to reach the relay; it is **not authentication**, because any non-browser client can set or omit the header. A public deployment additionally needs authentication and rate limits before it can be exposed. Limits: 15 min of audio per session, 4 concurrent sessions, 10 s to send the start message.
 
 ```bash
-uv run --no-project --with "fastapi>=0.115" --with httpx --with pytest --with websockets pytest -q backend/spike/test_audio_ws.py
+uv run --no-project --with "fastapi>=0.115" --with httpx --with pytest --with pytest-asyncio --with websockets pytest -q backend/spike/test_audio_ws.py
 ```
 
 Tests use a scripted fake provider; `STT_PROVIDER=mock` runs the server with a local stand-in (one "mock segment" per second of audio) for browser tests without Sarvam calls.
@@ -34,3 +34,21 @@ uv run backend/spike/relay_smoke.py backend/spike/samples/te_en_digital_arrest.w
 ```
 
 Samples are synthetic TTS (clean studio audio, one speaker). They do not represent speakerphone audio picked up by a second device; results here are not an accuracy claim.
+
+## Incremental scam-tactic detector (Gemini)
+
+`detector.py` holds the contract and the deterministic risk policy; `gemini_verifier.py` is the Gemini client. The relay feeds each **finalized, non-empty, first-seen** transcript segment to a per-session `SessionDetector`, in arrival order, and forwards its `risk` events to the browser. The page ignores these for now; the dashboard and spoken warnings are later work.
+
+- **Input contract.** Only `segment_id`, `text` and the server's receive time. No speaker labels (live STT has none), family IDs, scam/genuine labels, first-ask times or future segments. Evaluation data and ground truth are not used as prompt examples.
+- **No spelling gate.** Every finalized segment is analysed, because Sarvam transliterates or mishears acronyms (OTP / ओटीपी, KYC → कार्ड/कैट, Cyber → "Cibir"). The prompt tells the model to judge meaning, not spelling.
+- **Evidence.** The model returns tactic findings with status `present | negated | benign` and a verbatim quote. Only `present` findings whose quote occurs in the named segment are kept. Negated warnings ("never share your OTP"), benign look-alikes (delivery codes) and the listener's own words are not evidence.
+- **Risk is computed in code, not by the model.** `red` for a credential or remote-access request, a money request plus authority, threat or secrecy, or authority + threat + secrecy together. `amber` for two or more pressure tactics. Otherwise `none`, which means "no warning yet", never "safe". Warnings are never cleared during a session.
+- **Bounds.** One call in flight; segments that arrive meanwhile are coalesced. At least 1 s between calls, an 8 s timeout per call, at most 60 calls per session, and at most 50 queued segments. Context is the last 12 segments within 4,000 characters, plus up to 3 retained quotes per confirmed tactic, so early clues survive. Runs of four or more digits are masked as `[NUMBER]` before anything leaves the server. Spelled-out numbers and names are not masked.
+- **Failures are visible.** A timeout, HTTP error, blocked reply, malformed reply or exhausted budget emits `analysis: "unavailable"` with the reason and keeps the current level. Stop waits, within the same 6 s deadline, for analysis of the final segments. `stopped.analysis` reports `complete | incomplete | pending | unavailable` separately from transcription completeness.
+- **Configuration.** `GEMINI_API_KEY` and `GEMINI_MODEL` come from the environment or `.env`, server-side only. There is no default model: pin one that has been tested with this account. Without both, transcription still works and every session reports analysis `unavailable`.
+
+```bash
+uv run --no-project --with "fastapi>=0.115" --with httpx --with pytest --with pytest-asyncio --with websockets pytest -q backend/spike/
+```
+
+Tests use a scripted mock verifier and a mock HTTP transport. **No real Gemini call has been made yet**: no key was configured when this was written. The prompt, schema and model choice therefore still need a real check.

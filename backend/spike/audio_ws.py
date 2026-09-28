@@ -33,6 +33,8 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
+from detector import Segment, SessionDetector
+from gemini_verifier import make_verifier
 from stt_provider import ProviderError, default_connector
 
 SAMPLE_RATE = 16000
@@ -48,6 +50,7 @@ FINALIZE_DEADLINE_S = 6.0  # whole Stop budget on the server: drain, flush, fina
 FINALIZE_SETTLE_S = 1.0  # after the flush, the provider must be quiet this long with nothing open
 PROVIDER_CLOSE_TIMEOUT_S = 1.0  # bounded provider shutdown: 6 s + 1 s stays inside the browser's 8 s
 connect_provider = default_connector()
+verifier_factory = make_verifier  # returns (verifier, None) or (None, reason); replaced in tests
 
 app = FastAPI()
 active_sessions = 0
@@ -154,6 +157,9 @@ class _Relay:
         self.last_event_at = asyncio.get_running_loop().time()
         self.closing = False
         self.close_task = None
+        self.detector = None  # SessionDetector, or None when analysis is unavailable
+        self.detector_unavailable = None  # reason, when there is no detector
+        self.started_at = asyncio.get_running_loop().time()
         self.failed = asyncio.Event()
         self.failure = None
         self.lock = asyncio.Lock()
@@ -234,6 +240,11 @@ class _Relay:
                     continue  # utterance was not speech; counted, not shown
                 self.seen.add(event["segment_id"])
                 self.segments += 1
+                await self.send(event)
+                if self.detector:  # finalized segments only, in arrival order; no speaker or other metadata
+                    received_ms = int((asyncio.get_running_loop().time() - self.started_at) * 1000)
+                    self.detector.add(Segment.from_event(event, received_ms))
+                continue
             await self.send(event)
         if not self.closing:
             raise ProviderError("provider closed the connection")
@@ -285,18 +296,30 @@ async def _session(ws: WebSocket) -> None:
         return
 
     relay = _Relay(ws, provider)
+    verifier, relay.detector_unavailable = verifier_factory()
+    if verifier:
+        relay.detector = SessionDetector(verifier, relay.send)
     tasks = [asyncio.create_task(relay.guard(relay.pump())), asyncio.create_task(relay.guard(relay.read()))]
     try:
         await relay.send({"type": "ready", **EXPECTED_FORMAT, "language_code": language,
                           "max_frame_bytes": MAX_FRAME_BYTES, "max_session_seconds": MAX_SESSION_SECONDS})
+        if relay.detector_unavailable:  # visible from the start: transcription runs, scam analysis does not
+            await relay.send({"type": "risk", "level": "none", "reason": None, "analysis": "unavailable",
+                              "error": relay.detector_unavailable, "tactics": [], "analysed_segments": 0,
+                              "unanalysed_segments": 0, "calls": 0, "latency_s": None})
         await _receive_audio(ws, relay)
     finally:
         relay.closing = True
         for t in tasks:
             t.cancel()
-        # The close runs as its own task, so it proceeds even if this session is cancelled; waiting is bounded
-        # so a provider that never finishes closing cannot hold the session (and its slot) open.
-        await asyncio.wait([relay.close_provider(), *tasks], timeout=PROVIDER_CLOSE_TIMEOUT_S)
+        # Start every close before the first await: if this session is being cancelled, the first await
+        # raises at once, and anything not yet started would never run. Waiting is bounded.
+        closers = [relay.close_provider()]
+        if relay.detector:
+            closers.append(asyncio.ensure_future(relay.detector.close()))
+        if verifier:
+            closers.append(asyncio.ensure_future(verifier.close()))
+        await asyncio.wait([*closers, *tasks], timeout=PROVIDER_CLOSE_TIMEOUT_S)
 
 
 async def _receive_audio(ws: WebSocket, relay: _Relay) -> None:
@@ -338,7 +361,9 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
     loop = asyncio.get_running_loop()
     deadline = loop.time() + FINALIZE_DEADLINE_S
     relay.queue.put_nowait(_FLUSH)  # queued after every accepted frame
-    while not relay.failure and not relay.settled(loop.time()) and loop.time() < deadline:
+    # Transcription settles first; scam analysis of the final segments then gets the rest of the same deadline.
+    while not relay.failure and loop.time() < deadline and not (
+            relay.settled(loop.time()) and (relay.detector is None or relay.detector.idle())):
         await asyncio.sleep(0.05)
     if relay.failure:
         return  # provider_failed already reported the error and closed the socket
@@ -356,7 +381,9 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
                       "dropped_s": relay.dropped_samples / SAMPLE_RATE,
                       "transcription": "incomplete" if reasons else "complete",
                       "reason": "; ".join(reasons) or None,
-                      "provider_cleanup": cleanup})
+                      "provider_cleanup": cleanup,
+                      "analysis": relay.detector.summary() if relay.detector else
+                      {"status": "unavailable", "error": relay.detector_unavailable}})
     await ws.close(code=1000)
 
 
