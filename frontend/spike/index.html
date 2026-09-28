@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CallKavach mic spike</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 24px; max-width: 560px; }
+    button { font-size: 18px; padding: 10px 24px; margin-right: 8px; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+    dt { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Microphone capture spike</h1>
+  <button id="start">Start</button>
+  <button id="stop" disabled>Stop</button>
+  <dl>
+    <dt>Status</dt><dd id="status">Idle</dd>
+    <dt>Microphone rate</dt><dd id="rate">–</dd>
+    <dt>Captured</dt><dd id="duration">–</dd>
+    <dt>Output samples</dt><dd id="outCount">–</dd>
+  </dl>
+  <script type="module" src="./capture.js"></script>
+</body>
+</html>
