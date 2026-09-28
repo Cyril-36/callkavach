@@ -1,0 +1,6 @@
+[
+  {"call_id": "pilot-hi-en-kyc-scam-001", "family_id": "kyc-update-scam", "pair_group_id": "kyc-update-seed-01", "label": "scam", "first_ask_at_ms": 27600},
+  {"call_id": "pilot-hi-en-kyc-genuine-001", "family_id": "kyc-update-genuine", "pair_group_id": "kyc-update-seed-01", "label": "genuine", "first_ask_at_ms": null},
+  {"call_id": "pilot-te-en-courier-scam-001", "family_id": "courier-parcel-scam", "pair_group_id": "courier-parcel-seed-01", "label": "scam", "first_ask_at_ms": 28900},
+  {"call_id": "pilot-te-en-courier-genuine-001", "family_id": "courier-parcel-genuine", "pair_group_id": "courier-parcel-seed-01", "label": "genuine", "first_ask_at_ms": null}
+]

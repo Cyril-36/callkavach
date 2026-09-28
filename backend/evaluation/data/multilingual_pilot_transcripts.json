@@ -1,0 +1,58 @@
+[
+  {
+    "call_id": "pilot-hi-en-kyc-scam-001",
+    "language": "hi-en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 5200, "speaker": "caller", "text": "नमस्ते, मैं बैंक की KYC टीम से बोल रहा हूँ। आपके account में verification pending दिख रहा है।", "final": true},
+      {"segment_id": "s2", "start_at_ms": 5500, "end_at_ms": 9000, "speaker": "listener", "text": "मुझे तो app में कोई notice नहीं दिखा। क्या हुआ है?", "final": true},
+      {"segment_id": "s3", "start_at_ms": 9300, "end_at_ms": 15000, "speaker": "caller", "text": "System में आज की deadline है। Update नहीं हुआ तो शाम तक account freeze हो सकता है।", "final": true},
+      {"segment_id": "s4", "start_at_ms": 15300, "end_at_ms": 18600, "speaker": "listener", "text": "मैं branch जाकर पूछ लूँ? अभी फोन पर हूँ।", "final": true},
+      {"segment_id": "s5", "start_at_ms": 18900, "end_at_ms": 24500, "speaker": "caller", "text": "Branch में देर लगेगी। मैं यहीं से verification complete कर देता हूँ, बस message आने वाला है।", "final": true},
+      {"segment_id": "s6", "start_at_ms": 24800, "end_at_ms": 27300, "speaker": "listener", "text": "Message आया है। इसमें OTP लिखा है।", "final": true},
+      {"segment_id": "s7", "start_at_ms": 27600, "end_at_ms": 32500, "speaker": "caller", "text": "वही banking OTP अभी मुझे पढ़कर बता दीजिए, तभी KYC update complete होगा।", "final": true},
+      {"segment_id": "s8", "start_at_ms": 32800, "end_at_ms": 36600, "speaker": "listener", "text": "नहीं, मैं bank के official number पर confirm करूँगा।", "final": true}
+    ]
+  },
+  {
+    "call_id": "pilot-hi-en-kyc-genuine-001",
+    "language": "hi-en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 4600, "speaker": "caller", "text": "नमस्ते, आपकी branch से बोल रही हूँ। आपके profile review का reminder है।", "final": true},
+      {"segment_id": "s2", "start_at_ms": 4900, "end_at_ms": 8400, "speaker": "listener", "text": "क्या मुझे आज ही कुछ करना होगा?", "final": true},
+      {"segment_id": "s3", "start_at_ms": 8700, "end_at_ms": 13900, "speaker": "caller", "text": "नहीं, इस हफ्ते app में notice देख लीजिए या branch में appointment ले लीजिए।", "final": true},
+      {"segment_id": "s4", "start_at_ms": 14200, "end_at_ms": 17600, "speaker": "listener", "text": "App में KYC वाला section कहाँ मिलेगा?", "final": true},
+      {"segment_id": "s5", "start_at_ms": 17900, "end_at_ms": 23000, "speaker": "caller", "text": "Profile में documents वाला tab है। अगर notice न मिले तो branch के published number पर पूछिए।", "final": true},
+      {"segment_id": "s6", "start_at_ms": 23300, "end_at_ms": 27400, "speaker": "listener", "text": "ठीक है। कोई OTP आए तो क्या आपको बताना है?", "final": true},
+      {"segment_id": "s7", "start_at_ms": 27700, "end_at_ms": 31600, "speaker": "caller", "text": "नहीं, OTP किसी को मत बताइए। Review आप app या branch में खुद कीजिए।", "final": true},
+      {"segment_id": "s8", "start_at_ms": 31900, "end_at_ms": 33800, "speaker": "listener", "text": "समझ गया, धन्यवाद।", "final": true}
+    ]
+  },
+  {
+    "call_id": "pilot-te-en-courier-scam-001",
+    "language": "te-en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 5000, "speaker": "caller", "text": "నమస్కారం, courier depot నుంచి మాట్లాడుతున్నాను. మీ number మీద ఒక parcel hold అయింది.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 5300, "end_at_ms": 9200, "speaker": "listener", "text": "నేను ఏ parcel పంపలేదు. Tracking number ఏంటి?", "final": true},
+      {"segment_id": "s3", "start_at_ms": 9500, "end_at_ms": 15300, "speaker": "caller", "text": "Customs వాళ్లు prohibited item ఉందని flag చేశారు. Sender details కూడా మీ number తో ఉన్నాయి.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 15600, "end_at_ms": 19000, "speaker": "listener", "text": "అది నాది కాదు. Official tracking ఎక్కడ చూడాలి?", "final": true},
+      {"segment_id": "s5", "start_at_ms": 19300, "end_at_ms": 25100, "speaker": "caller", "text": "ఇప్పుడే case forward చేస్తే police call వస్తుంది. Phone cut చేయకుండా ఇక్కడే resolve చేద్దాం.", "final": true},
+      {"segment_id": "s6", "start_at_ms": 25400, "end_at_ms": 28600, "speaker": "listener", "text": "Resolve అంటే నేను ఏమి చేయాలి?", "final": true},
+      {"segment_id": "s7", "start_at_ms": 28900, "end_at_ms": 34400, "speaker": "caller", "text": "Release fee కోసం ఇప్పుడు నేను చెప్పే account కి ₹2,500 transfer చేయండి; అప్పుడు case ఆపుతాను.", "final": true},
+      {"segment_id": "s8", "start_at_ms": 34700, "end_at_ms": 39100, "speaker": "listener", "text": "నేను payment చేయను. Courier official site లో check చేస్తాను.", "final": true}
+    ]
+  },
+  {
+    "call_id": "pilot-te-en-courier-genuine-001",
+    "language": "te-en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 4800, "speaker": "caller", "text": "నమస్కారం, మీ order parcel తో building దగ్గరికి వచ్చాను. Gate ఏది?", "final": true},
+      {"segment_id": "s2", "start_at_ms": 5100, "end_at_ms": 8600, "speaker": "listener", "text": "North gate కి రండి. నేను రెండు నిమిషాల్లో దిగుతాను.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 8900, "end_at_ms": 13300, "speaker": "caller", "text": "సరే. మీ shopping app లో delivery status కూడా చూసుకోండి.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 13600, "end_at_ms": 16600, "speaker": "listener", "text": "అవును, out for delivery అని ఉంది.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 16900, "end_at_ms": 22200, "speaker": "caller", "text": "Parcel చేతికి ఇచ్చాక, ఆ order కి app లో చూపించే delivery code చెప్పండి. అప్పుడే delivered mark చేస్తాను.", "final": true},
+      {"segment_id": "s6", "start_at_ms": 22500, "end_at_ms": 26500, "speaker": "listener", "text": "సరే, packet చూసి తీసుకున్నాక code చెప్తాను.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 26800, "end_at_ms": 30300, "speaker": "caller", "text": "నేను gate వద్ద wait చేస్తాను. Blue delivery bag ఉంది.", "final": true},
+      {"segment_id": "s8", "start_at_ms": 30600, "end_at_ms": 32700, "speaker": "listener", "text": "వస్తున్నాను.", "final": true}
+    ]
+  }
+]

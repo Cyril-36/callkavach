@@ -120,3 +120,18 @@ an actual detector run may produce `red_alert_at_ms`; join that emitted time
 with ground truth by `call_id` before calling `summarize_calls`. Do not fill in
 an alert time from the script or assume that a detector warned because a scam
 label is present.
+
+## Multilingual development pilot
+
+`data/multilingual_pilot_transcripts.json` and
+`data/multilingual_pilot_ground_truth.json` contain four **candidate** calls:
+one Hindi-English KYC pair and one Telugu-English courier pair. Their existing
+development family IDs and pair-group IDs are recorded in ground truth. These
+drafts require the human review described in `MULTILINGUAL_PILOT_REVIEW.md`
+before being called a reviewed development set. They are not held-out calls.
+Only the transcript file is detector input.
+
+```bash
+python3 backend/evaluation/validate_multilingual_pilot.py
+python3 -m unittest discover -s backend/evaluation -p 'test_*.py'
+```
