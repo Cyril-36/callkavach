@@ -10,8 +10,10 @@ Audio bytes are validated, counted and discarded; nothing is stored.
 """
 import asyncio
 import json
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 
 SAMPLE_RATE = 16000
 BYTES_PER_SAMPLE = 2
@@ -104,3 +106,7 @@ async def _session(ws: WebSocket) -> None:
         samples += len(data) // BYTES_PER_SAMPLE
         await ws.send_json({"type": "ack", "frames": frames, "samples": samples,
                             "duration_s": samples / SAMPLE_RATE})
+
+
+# Serve the browser capture spike from the same origin so the page can reach /ws/audio.
+app.mount("/", StaticFiles(directory=Path(__file__).resolve().parents[2] / "frontend" / "spike", html=True))

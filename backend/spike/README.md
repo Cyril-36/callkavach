@@ -17,7 +17,7 @@ Add `--model saaras:v4` to compare models. Exit code: 0 all succeeded, 1 an API 
 
 ## WebSocket audio receiver
 
-`audio_ws.py` accepts `/ws/audio`: a JSON start message declaring `pcm_s16le`, mono, 16 kHz, then binary frames (non-empty, whole 16-bit samples, at most 1 s each). Each frame is acknowledged with cumulative samples and duration; `{"type": "stop"}` ends the session. Limits: 15 min of audio per session, 4 concurrent sessions, 10 s to send the start message. Audio is counted and discarded, never stored. Not yet connected to Sarvam or the browser page.
+`audio_ws.py` accepts `/ws/audio`: a JSON start message declaring `pcm_s16le`, mono, 16 kHz, then binary frames (non-empty, whole 16-bit samples, at most 1 s each). Each frame is acknowledged with cumulative samples and duration; `{"type": "stop"}` ends the session. Limits: 15 min of audio per session, 4 concurrent sessions, 10 s to send the start message. Audio is counted and discarded, never stored. It also serves `frontend/spike/` at `/`, so the browser capture page streams to it from the same origin (see `frontend/spike/README.md`). Not yet connected to Sarvam.
 
 ```bash
 uv run --no-project --with "fastapi>=0.115" --with httpx --with pytest pytest -q backend/spike/test_audio_ws.py
