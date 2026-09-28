@@ -1,6 +1,7 @@
 [
   {
     "family_id": "digital-arrest-scam",
+    "pair_group_id": "digital-arrest-seed-01",
     "label": "scam",
     "scenario_type": "digital-arrest",
     "steps": [
@@ -25,6 +26,7 @@
   },
   {
     "family_id": "digital-arrest-genuine",
+    "pair_group_id": "digital-arrest-seed-01",
     "label": "genuine",
     "scenario_type": "digital-arrest",
     "steps": [
@@ -49,6 +51,7 @@
   },
   {
     "family_id": "courier-parcel-scam",
+    "pair_group_id": "courier-parcel-seed-01",
     "label": "scam",
     "scenario_type": "courier-parcel",
     "steps": [
@@ -73,6 +76,7 @@
   },
   {
     "family_id": "courier-parcel-genuine",
+    "pair_group_id": "courier-parcel-seed-01",
     "label": "genuine",
     "scenario_type": "courier-parcel",
     "steps": [
@@ -97,6 +101,7 @@
   },
   {
     "family_id": "kyc-update-scam",
+    "pair_group_id": "kyc-update-seed-01",
     "label": "scam",
     "scenario_type": "kyc-update",
     "steps": [
@@ -121,6 +126,7 @@
   },
   {
     "family_id": "kyc-update-genuine",
+    "pair_group_id": "kyc-update-seed-01",
     "label": "genuine",
     "scenario_type": "kyc-update",
     "steps": [
@@ -145,6 +151,7 @@
   },
   {
     "family_id": "bank-card-block-scam",
+    "pair_group_id": "bank-card-block-seed-01",
     "label": "scam",
     "scenario_type": "bank-card-block",
     "steps": [
@@ -169,6 +176,7 @@
   },
   {
     "family_id": "bank-card-block-genuine",
+    "pair_group_id": "bank-card-block-seed-01",
     "label": "genuine",
     "scenario_type": "bank-card-block",
     "steps": [
@@ -193,6 +201,7 @@
   },
   {
     "family_id": "trai-sim-disconnection-scam",
+    "pair_group_id": "trai-sim-disconnection-seed-01",
     "label": "scam",
     "scenario_type": "trai-sim-disconnection",
     "steps": [
@@ -217,6 +226,7 @@
   },
   {
     "family_id": "trai-sim-disconnection-genuine",
+    "pair_group_id": "trai-sim-disconnection-seed-01",
     "label": "genuine",
     "scenario_type": "trai-sim-disconnection",
     "steps": [
@@ -241,6 +251,7 @@
   },
   {
     "family_id": "electricity-bill-scam",
+    "pair_group_id": "electricity-bill-seed-01",
     "label": "scam",
     "scenario_type": "electricity-bill",
     "steps": [
@@ -265,6 +276,7 @@
   },
   {
     "family_id": "electricity-bill-genuine",
+    "pair_group_id": "electricity-bill-seed-01",
     "label": "genuine",
     "scenario_type": "electricity-bill",
     "steps": [
