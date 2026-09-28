@@ -24,20 +24,31 @@ async function start() {
   }
 
   // Let the browser pick its native rate; we resample ourselves.
-  const ctx = new AudioContext();
-  await ctx.audioWorklet.addModule("./pcm-worklet.js");
-  const source = ctx.createMediaStreamSource(stream);
-  const node = new AudioWorkletNode(ctx, "pcm-capture");
+  let ctx, source, node;
+  try {
+    ctx = new AudioContext();
+    await ctx.audioWorklet.addModule("./pcm-worklet.js");
+    source = ctx.createMediaStreamSource(stream);
+    node = new AudioWorkletNode(ctx, "pcm-capture");
+  } catch (e) {
+    stream.getTracks().forEach((t) => t.stop());
+    if (ctx) await ctx.close().catch(() => {});
+    show({ status: `Audio setup failed: ${e.name || e}. Try again.` });
+    $("start").disabled = false;
+    return;
+  }
   const resampler = new Resampler(ctx.sampleRate, 16000);
-  session = { stream, ctx, source, node, inSamples: 0, outSamples: 0 };
+  const s = { stream, ctx, source, node, inSamples: 0, outSamples: 0 };
+  session = s;
 
   node.port.onmessage = ({ data }) => {
+    if (session !== s) return; // late message from a stopped session
     const pcm16 = toInt16(resampler.process(data)); // 16 kHz Int16 mono; kept only in memory, discarded
-    session.inSamples += data.length;
-    session.outSamples += pcm16.length;
+    s.inSamples += data.length;
+    s.outSamples += pcm16.length;
     show({
-      duration: `${(session.inSamples / ctx.sampleRate).toFixed(2)} s`,
-      outCount: `${session.outSamples} (${(session.outSamples / 16000).toFixed(2)} s at 16 kHz)`,
+      duration: `${(s.inSamples / ctx.sampleRate).toFixed(2)} s`,
+      outCount: `${s.outSamples} (${(s.outSamples / 16000).toFixed(2)} s at 16 kHz)`,
     });
   };
   source.connect(node);
@@ -56,12 +67,12 @@ async function stop() {
   if (!session) return;
   $("stop").disabled = true;
   const { stream, ctx, source, node } = session;
+  session = null;
   node.port.onmessage = null;
   source.disconnect();
   node.disconnect();
   stream.getTracks().forEach((t) => t.stop());
   await ctx.close();
-  session = null;
   show({ status: "Stopped" });
   $("start").disabled = false;
 }
