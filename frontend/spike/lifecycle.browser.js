@@ -29,8 +29,16 @@ navigator.mediaDevices.getUserMedia = async () => {
 window.AudioContext = class extends RealAC {
   constructor(...a) { super(...a); captureContexts.push(this); }
 };
+// Test-harness only: redirectNextSocket sends one socket to a dead local port. The page itself has no
+// way to choose its destination.
+let redirectNextSocket = null;
 window.WebSocket = class extends RealWS {
-  constructor(...a) { super(...a); sockets.push(this); }
+  constructor(url, ...a) {
+    const target = redirectNextSocket ?? url;
+    redirectNextSocket = null;
+    super(target, ...a);
+    sockets.push(this);
+  }
 };
 
 await import("./capture.js");
@@ -126,14 +134,25 @@ await test("a server error mid-session releases the mic and allows retry", async
   await stopAndWait();
 });
 
-await test("an unreachable server releases the mic", async () => {
+await test("the page ignores a ?ws= destination and uses its own /ws/audio", async () => {
   const original = location.href;
   history.replaceState(null, "", "?ws=ws://127.0.0.1:9/ws/audio");
+  try {
+    await startListening();
+  } finally {
+    history.replaceState(null, "", original);
+  }
+  assert(sockets.at(-1).url === `ws://${location.host}/ws/audio`, `socket went to ${sockets.at(-1).url}`);
+  await stopAndWait();
+});
+
+await test("an unreachable server releases the mic", async () => {
+  redirectNextSocket = "ws://127.0.0.1:9/ws/audio"; // nothing listens on port 9
   try {
     $("start").click();
     await until(() => $("status").textContent.startsWith("Could not start"));
   } finally {
-    history.replaceState(null, "", original);
+    redirectNextSocket = null;
   }
   assert($("status").textContent.includes("could not reach"), `unexpected message: ${$("status").textContent}`);
   assertReleased("unreachable server");

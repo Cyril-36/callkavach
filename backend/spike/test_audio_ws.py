@@ -550,3 +550,47 @@ def test_disconnect_with_hanging_provider_close_releases_the_session(client, mon
         receive_until(ws, "ack")
     wait_for_no_sessions()
     assert FakeProvider.instances[0].close_called
+
+
+# --- origin boundary ---
+
+def counting_provider(monkeypatch):
+    calls = []
+
+    async def connect(language_code):
+        calls.append(language_code)
+        return FakeProvider()
+    monkeypatch.setattr(audio_ws, "connect_provider", connect)
+    return calls
+
+
+def test_same_origin_browser_connection_is_accepted(client, monkeypatch):
+    calls = counting_provider(monkeypatch)
+    with client.websocket_connect("/ws/audio", headers={"origin": "http://testserver"}) as ws:
+        open_session(ws)
+    assert calls == ["te-IN"]
+
+
+def test_connection_without_origin_is_accepted_for_cli_clients(client, monkeypatch):
+    calls = counting_provider(monkeypatch)
+    with client.websocket_connect("/ws/audio") as ws:  # like relay_smoke.py: no Origin header
+        open_session(ws)
+    assert calls == ["te-IN"]
+
+
+@pytest.mark.parametrize("origin", [
+    "http://evil.example",
+    "https://testserver.evil.example",
+    "http://testserver:9999",  # same host name, different port is a different origin
+    "null",
+    "file://",
+])
+def test_cross_origin_connection_is_refused_before_any_provider_session(client, monkeypatch, origin):
+    calls = counting_provider(monkeypatch)
+    with pytest.raises(WebSocketDisconnect) as refused:
+        with client.websocket_connect("/ws/audio", headers={"origin": origin}) as ws:
+            ws.send_json(START)
+            ws.receive_json()
+    assert refused.value.code == 1008
+    assert calls == [], "connect_provider was called for a refused origin"
+    assert audio_ws.active_sessions == 0

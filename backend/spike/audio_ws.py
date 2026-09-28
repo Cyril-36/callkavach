@@ -16,11 +16,18 @@ Sarvam (probed 2026-09-29) sends START_SPEECH, END_SPEECH and one final transcri
 nothing in reply to a flush when no utterance is open. Completion is therefore judged by utterance
 accounting: every START_SPEECH must have a final result, after the flush was actually sent.
 Any violation or provider failure gets {"type": "error", "code", "message"} and the socket is closed.
-Audio is held only in the bounded relay queue; nothing is stored.
+This app does not save recordings or transcripts: audio is held only in the bounded relay queue and is
+sent to Sarvam for transcription (Sarvam's own retention is governed by its terms, not by this code).
+
+Local-spike security: browser connections from a different origin are rejected before any Sarvam session
+is opened. Browsers always send Origin on WebSocket upgrades; non-browser clients (such as relay_smoke.py)
+send none and are allowed. An Origin check is not authentication - any non-browser client can set or omit
+the header - so a public deployment additionally needs authentication and rate limits.
 """
 import asyncio
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -58,9 +65,21 @@ async def _fail(ws: WebSocket, code: str, message: str, close_code: int) -> None
     await ws.close(code=close_code)
 
 
+def _same_origin(ws: WebSocket) -> bool:
+    """True if there is no Origin header (non-browser client) or it names this server's own host."""
+    origin = ws.headers.get("origin")
+    if origin is None:
+        return True
+    parts = urlsplit(origin)
+    return parts.scheme in ("http", "https") and parts.netloc.lower() == ws.headers.get("host", "").lower()
+
+
 @app.websocket("/ws/audio")
 async def audio(ws: WebSocket) -> None:
     global active_sessions
+    if not _same_origin(ws):
+        await ws.close(code=1008)  # before accept: the upgrade is refused with HTTP 403, no session is opened
+        return
     await ws.accept()
     if active_sessions >= MAX_SESSIONS:
         await _fail(ws, "too_many_sessions", f"At most {MAX_SESSIONS} sessions at once.", 1013)

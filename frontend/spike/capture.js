@@ -10,9 +10,9 @@ function show(fields) {
   for (const [id, value] of Object.entries(fields)) $(id).textContent = value;
 }
 
+// Audio only ever goes to this page's own server; there is deliberately no way to point it elsewhere.
 function wsUrl() {
-  const override = new URLSearchParams(location.search).get("ws");
-  return override || `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/audio`;
+  return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/audio`;
 }
 
 function parse(data) {
@@ -164,7 +164,7 @@ async function start() {
 
     s.node.port.onmessage = ({ data }) => {
       if (s.done || s.stopping) return; // late message from a stopped or failed session
-      const pcm16 = toInt16(resampler.process(data)); // 16 kHz Int16 mono; not stored
+      const pcm16 = toInt16(resampler.process(data)); // 16 kHz Int16 mono; not saved by this app
       s.inSamples += data.length;
       s.outSamples += pcm16.length;
       const dropped = s.sender.droppedSamples;
@@ -185,7 +185,7 @@ async function start() {
     const trackRate = stream.getAudioTracks()[0].getSettings().sampleRate;
     session = s;
     show({
-      status: "Listening (audio is transcribed by Sarvam via the local server; nothing is stored)",
+      status: "Listening (audio is sent to Sarvam for transcription; this app does not save recordings or transcripts)",
       rate: `${s.ctx.sampleRate} Hz (AudioContext)${trackRate ? `, track reports ${trackRate} Hz` : ""}`,
       duration: "0.00 s",
       outCount: "0",
