@@ -1,0 +1,158 @@
+[
+  {
+    "call_id": "dev-digital-arrest-scam-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 8000, "speaker": "caller", "text": "I am from the cyber cell. A complaint has been opened in your name.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 8500, "end_at_ms": 12000, "speaker": "listener", "text": "What complaint? I have not heard about this.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 12500, "end_at_ms": 22000, "speaker": "caller", "text": "Your identity was linked to an illegal transfer. You are under investigation.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 22500, "end_at_ms": 30000, "speaker": "caller", "text": "Do not tell your family or end this call until we clear your name.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 30500, "end_at_ms": 35500, "speaker": "listener", "text": "Can I call the official office to verify this?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 36000, "end_at_ms": 46000, "speaker": "caller", "text": "No. Transfer your savings to our verification account now to avoid arrest.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 46500, "end_at_ms": 52000, "speaker": "listener", "text": "I will not transfer money. I will contact the official number myself.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-digital-arrest-genuine-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 8000, "speaker": "caller", "text": "This is the public help desk returning your message about a threatening call.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 8500, "end_at_ms": 12000, "speaker": "listener", "text": "Someone claimed I was under digital arrest.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 12500, "end_at_ms": 22000, "speaker": "caller", "text": "You said that caller linked your identity to a criminal case.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 22500, "end_at_ms": 30000, "speaker": "caller", "text": "You can end any such call and contact the official office or someone you trust.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 30500, "end_at_ms": 35500, "speaker": "listener", "text": "So I should check through an official number?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 36000, "end_at_ms": 46000, "speaker": "caller", "text": "Yes. We will not ask you to move money or share a banking code over the phone.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 46500, "end_at_ms": 52000, "speaker": "listener", "text": "Thanks. I will verify it independently.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-courier-parcel-scam-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 6500, "speaker": "caller", "text": "A parcel booked with your phone number has been held at our depot.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 7000, "end_at_ms": 9000, "speaker": "listener", "text": "I was not expecting any parcel.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 9500, "end_at_ms": 16500, "speaker": "caller", "text": "Customs flagged it for a prohibited item.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 17000, "end_at_ms": 24000, "speaker": "caller", "text": "The case will be sent to police today if you disconnect and delay.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 24500, "end_at_ms": 27500, "speaker": "listener", "text": "Can I check the tracking number first?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 28000, "end_at_ms": 36000, "speaker": "caller", "text": "Pay the release fee to the account I give you now to stop the case.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 36500, "end_at_ms": 41000, "speaker": "listener", "text": "I will not pay on this call. Goodbye.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-courier-parcel-genuine-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 6500, "speaker": "caller", "text": "I am nearby with your parcel. You can confirm it in your shopping app.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 7000, "end_at_ms": 9000, "speaker": "listener", "text": "Yes, I see the order there.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 9500, "end_at_ms": 16500, "speaker": "caller", "text": "I can meet you at the building entrance when you are ready.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 17000, "end_at_ms": 24000, "speaker": "caller", "text": "At the door, please share the delivery code shown for this order.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 24500, "end_at_ms": 27500, "speaker": "listener", "text": "I am at the door. My order app shows delivery code 4821.", "final": true},
+      {"segment_id": "s6", "start_at_ms": 28000, "end_at_ms": 36000, "speaker": "caller", "text": "Thanks, marked delivered. I do not need a bank OTP, card PIN, or payment.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 36500, "end_at_ms": 41000, "speaker": "listener", "text": "I have the parcel. Thank you.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-kyc-update-scam-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 6000, "speaker": "caller", "text": "I am calling from your bank's verification team about your KYC status.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 6500, "end_at_ms": 9000, "speaker": "listener", "text": "I thought my profile was already updated.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 9500, "end_at_ms": 16000, "speaker": "caller", "text": "Your account will be frozen today unless this update is completed.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 16500, "end_at_ms": 24000, "speaker": "caller", "text": "Read the banking OTP you just received so I can finish the KYC update.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 24500, "end_at_ms": 29000, "speaker": "listener", "text": "That sounds unsafe. Why do you need it?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 29500, "end_at_ms": 37000, "speaker": "caller", "text": "If you wait to visit a branch, your account may be blocked first.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 37500, "end_at_ms": 42000, "speaker": "listener", "text": "I will not share it. I will call my bank.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-kyc-update-genuine-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 6000, "speaker": "caller", "text": "Your bank profile may need a KYC review this month.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 6500, "end_at_ms": 9000, "speaker": "listener", "text": "What should I do?", "final": true},
+      {"segment_id": "s3", "start_at_ms": 9500, "end_at_ms": 16000, "speaker": "caller", "text": "Please check the notice in your bank app or ask at your branch.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 16500, "end_at_ms": 24000, "speaker": "caller", "text": "Never share your OTP or PIN, including with me.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 24500, "end_at_ms": 29000, "speaker": "listener", "text": "So you will not update it during this call?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 29500, "end_at_ms": 37000, "speaker": "caller", "text": "Correct. Verify the deadline through the bank's published support number.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 37500, "end_at_ms": 42000, "speaker": "listener", "text": "I will check the app. Thanks.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-bank-card-block-scam-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 6500, "speaker": "caller", "text": "This is the card security desk calling about your blocked card.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 7000, "end_at_ms": 10500, "speaker": "listener", "text": "I did have a transaction declined.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 11000, "end_at_ms": 18000, "speaker": "caller", "text": "A large transaction was attempted. We can release the block right now.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 18500, "end_at_ms": 26000, "speaker": "caller", "text": "Tell me your card PIN and the banking OTP so I can unblock it.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 26500, "end_at_ms": 31000, "speaker": "listener", "text": "I do not share those details on calls.", "final": true},
+      {"segment_id": "s6", "start_at_ms": 31500, "end_at_ms": 39000, "speaker": "caller", "text": "Calling the number on the card will take too long to stop this transaction.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 39500, "end_at_ms": 44000, "speaker": "listener", "text": "I will use my bank app instead.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-bank-card-block-genuine-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 6500, "speaker": "caller", "text": "A card transaction was declined, and you may want to review it.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 7000, "end_at_ms": 10500, "speaker": "listener", "text": "I just saw a decline notification.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 11000, "end_at_ms": 18000, "speaker": "caller", "text": "You can check or freeze the card yourself in your bank app.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 18500, "end_at_ms": 26000, "speaker": "caller", "text": "If you need help, call the number printed on the back of your card.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 26500, "end_at_ms": 31000, "speaker": "listener", "text": "Do you need my card number first?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 31500, "end_at_ms": 39000, "speaker": "caller", "text": "No. Please do not share your PIN, OTP, or full card number with me.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 39500, "end_at_ms": 44000, "speaker": "listener", "text": "I will check the app. Thank you.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-trai-sim-disconnection-scam-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 7000, "speaker": "caller", "text": "I am calling from the telecom regulator about your mobile number.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 7500, "end_at_ms": 11000, "speaker": "listener", "text": "What is wrong with my number?", "final": true},
+      {"segment_id": "s3", "start_at_ms": 11500, "end_at_ms": 18000, "speaker": "caller", "text": "Your SIM will be disconnected within an hour because of a complaint.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 18500, "end_at_ms": 28000, "speaker": "caller", "text": "Install the support app I name and give me remote access to keep it active.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 28500, "end_at_ms": 32000, "speaker": "listener", "text": "I do not want anyone controlling my phone.", "final": true},
+      {"segment_id": "s6", "start_at_ms": 32500, "end_at_ms": 41000, "speaker": "caller", "text": "Do not contact your mobile provider until I finish this verification.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 41500, "end_at_ms": 46500, "speaker": "listener", "text": "I will call my provider directly.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-trai-sim-disconnection-genuine-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 7000, "speaker": "caller", "text": "This is a reminder to check your mobile plan's service notice.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 7500, "end_at_ms": 11000, "speaker": "listener", "text": "Is my SIM being disconnected?", "final": true},
+      {"segment_id": "s3", "start_at_ms": 11500, "end_at_ms": 18000, "speaker": "caller", "text": "You can see its actual status in your provider's app or at its store.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 18500, "end_at_ms": 28000, "speaker": "caller", "text": "If the notice does not appear there, please ignore this call.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 28500, "end_at_ms": 32000, "speaker": "listener", "text": "Do I need to install anything for you?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 32500, "end_at_ms": 41000, "speaker": "caller", "text": "No. We will not ask for a remote-control app or banking code.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 41500, "end_at_ms": 46500, "speaker": "listener", "text": "I will check the app. Goodbye.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-electricity-bill-scam-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 6500, "speaker": "caller", "text": "Your electricity bill is overdue, according to our records.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 7000, "end_at_ms": 10000, "speaker": "listener", "text": "I paid a bill recently.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 10500, "end_at_ms": 18000, "speaker": "caller", "text": "A technician is scheduled to disconnect your power in one hour.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 18500, "end_at_ms": 26000, "speaker": "caller", "text": "Send the bill amount to the personal UPI account I give you right now.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 26500, "end_at_ms": 29500, "speaker": "listener", "text": "Can I check the utility portal?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 30000, "end_at_ms": 37000, "speaker": "caller", "text": "The portal will update too late to stop the technician.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 37500, "end_at_ms": 42500, "speaker": "listener", "text": "I will contact the utility directly.", "final": true}
+    ]
+  },
+  {
+    "call_id": "dev-electricity-bill-genuine-001",
+    "language": "en",
+    "segments": [
+      {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 6500, "speaker": "caller", "text": "Your latest electricity statement is available.", "final": true},
+      {"segment_id": "s2", "start_at_ms": 7000, "end_at_ms": 10000, "speaker": "listener", "text": "I thought I had already paid it.", "final": true},
+      {"segment_id": "s3", "start_at_ms": 10500, "end_at_ms": 18000, "speaker": "caller", "text": "Please check the amount and due date in your utility account or printed bill.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 18500, "end_at_ms": 26000, "speaker": "caller", "text": "Any service notice will also appear through the utility's published channels.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 26500, "end_at_ms": 29500, "speaker": "listener", "text": "Can I pay you over the phone?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 30000, "end_at_ms": 37000, "speaker": "caller", "text": "No. I cannot take a transfer, card number, or OTP during this call.", "final": true},
+      {"segment_id": "s7", "start_at_ms": 37500, "end_at_ms": 42500, "speaker": "listener", "text": "I will check my account. Thank you.", "final": true}
+    ]
+  }
+]

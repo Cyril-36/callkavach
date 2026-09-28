@@ -42,6 +42,14 @@ def fixture():
 
 
 class ValidateDevSetTests(unittest.TestCase):
+    def test_repository_dev_files_cover_existing_families(self):
+        transcripts = json.loads((DATA_DIR / "dev_transcripts.json").read_text(encoding="utf-8"))
+        truth = json.loads((DATA_DIR / "dev_ground_truth.json").read_text(encoding="utf-8"))
+        families = json.loads((DATA_DIR / "families.json").read_text(encoding="utf-8"))
+        self.assertIsNone(validate_dev_set(transcripts, truth, families))
+        self.assertEqual({record["family_id"] for record in truth},
+                         {family["family_id"] for family in families})
+
     def test_valid_fixture_does_not_mutate_inputs(self):
         data = fixture()
         original = deepcopy(data)
