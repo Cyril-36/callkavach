@@ -2,7 +2,7 @@
 
 import unittest
 
-from keyword_baseline import first_keyword_alert
+from backend.evaluation.keyword_baseline import first_keyword_alert
 
 
 def segment(segment_id, end_at_ms, text, final=True):

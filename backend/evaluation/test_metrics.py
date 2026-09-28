@@ -3,7 +3,7 @@
 import json
 import unittest
 
-from metrics import summarize_calls
+from backend.evaluation.metrics import summarize_calls
 
 
 def call(call_id, label, language="en", ask=None, alert=None):
