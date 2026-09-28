@@ -11,4 +11,4 @@ The owner, `Cyril-36`, is responsible for integration and the final submission. 
 
 Keep credentials, real call audio and ordinary users' transcripts out of Git. Use synthetic or explicitly consented evaluation data with clear labels. Do not change warning thresholds or claims in the dashboard without updating the evaluation evidence.
 
-GitHub's branch protection is the enforcement mechanism. `CODEOWNERS` and this guide alone are advisory until the remote rule is active and verified.
+GitHub's active branch protection is the enforcement mechanism. `CODEOWNERS` designates `Cyril-36` as the required reviewer. Do not grant teammates administrator or bypass privileges.

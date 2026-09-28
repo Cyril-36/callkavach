@@ -4,7 +4,7 @@ Confirmed 29 September 2026. This is the implementation plan; no application has
 
 The acceptance screenshots say the final project must use the same submitted problem statement, with a deadline of **1 October 2026, 11:59 PM IST**. Aim to submit at 8 PM. Check the official group for the actual submission fields and video requirements. The pasted “52 hours” is a historical estimate, not a fresh countdown.
 
-The accepted deck is PS-06, AI for Bharat in Indian Languages. Its actual interaction is a doubtful call on speaker, with CallKavach listening on a **second device**. Preserve that scope. The ownership model proposed here is Chaitanya plus Codex handling implementation and integration, with Harshit and Navadeep supplying bounded content and testing work. These assignments are proposed, not sent.
+The accepted deck is PS-06, AI for Bharat in Indian Languages. Its actual interaction is a doubtful call on speaker, with CallKavach listening on a **second device**. Preserve that scope. Use one implementation owner across browser audio, backend and integration; a second coding agent, if used, reviews the audio spike, first end-to-end slice and pre-freeze result. Chaitanya approves teammate pull requests and owns final integration. Harshit and Navadeep receive bounded content and testing tasks. The task assignments below are proposed, not sent.
 
 ## Verdict and required corrections
 
