@@ -138,6 +138,79 @@ await test("an unreachable server releases the mic", async () => {
   assertReleased("unreachable server");
 });
 
+await test("socket closing after ready but before audio setup completes never shows Listening", async () => {
+  const statuses = [];
+  const observer = new MutationObserver(() => statuses.push($("status").textContent));
+  observer.observe($("status"), { childList: true, characterData: true, subtree: true });
+  const realAddModule = AudioWorklet.prototype.addModule;
+  AudioWorklet.prototype.addModule = async function (...a) {
+    const ws = sockets.at(-1);
+    ws.close(); // the socket is past ready: capture.js only builds audio after the server's reply
+    await new Promise((r) => ws.addEventListener("close", r, { once: true }));
+    return realAddModule.apply(this, a);
+  };
+  try {
+    $("start").click();
+    await until(() => $("status").textContent.startsWith("Could not start"));
+  } finally {
+    AudioWorklet.prototype.addModule = realAddModule;
+    observer.disconnect();
+  }
+  await wait(300);
+  assert(!statuses.some((t) => t.startsWith("Listening")), `showed Listening: ${statuses.join(" | ")}`);
+  assert($("status").textContent.includes("during setup"), `unexpected message: ${$("status").textContent}`);
+  assertReleased("close during setup");
+  assert(captureContexts.at(-1).state === "closed", "context not closed");
+  await startListening();
+  await stopAndWait();
+});
+
+// Replaces the next text message capture.js sends (the stop request) for one call.
+function interceptStopMessage(replace) {
+  const realSend = RealWS.prototype.send;
+  RealWS.prototype.send = function (data) {
+    if (typeof data !== "string") return realSend.call(this, data);
+    RealWS.prototype.send = realSend;
+    return replace(this, (d) => realSend.call(this, d));
+  };
+  return () => { RealWS.prototype.send = realSend; };
+}
+
+async function stopExpectingIncomplete(label, replace, reason) {
+  await startListening();
+  const restore = interceptStopMessage(replace);
+  try {
+    $("stop").click();
+    await until(() => $("status").textContent.startsWith("Stopped"), 4000);
+  } finally {
+    restore();
+  }
+  const status = $("status").textContent;
+  assert(status.startsWith("Stopped, session incomplete") && status.includes(reason), `${label}: "${status}"`);
+  assertReleased(label);
+  await until(socketClosed);
+}
+
+await test("Stop without the server's stopped reply reports a timeout", async () => {
+  await stopExpectingIncomplete("timeout", () => {}, "did not confirm within 2 s");
+});
+
+await test("Stop answered by a server error reports the error", async () => {
+  await stopExpectingIncomplete("server error", (_ws, send) => send("not a stop"), "server error:");
+});
+
+await test("Stop interrupted by the connection closing reports an early close", async () => {
+  await stopExpectingIncomplete("early close", (ws) => ws.close(4000, "test"), "closed (code 4000)");
+});
+
+await test("a normal Stop reports success only after the server's reply", async () => {
+  await startListening();
+  $("stop").click();
+  await until(() => $("status").textContent.startsWith("Stopped"));
+  assert($("status").textContent === "Stopped", `"${$("status").textContent}"`);
+  assert(samplesIn("server") === samplesIn("sent"), "server total does not match sent");
+});
+
 results.push(results.every((r) => r.startsWith("PASS")) ? "\nALL PASSED" : "\nFAILURES");
 $("results").textContent = results.join("\n");
 document.title = results.at(-1).trim();

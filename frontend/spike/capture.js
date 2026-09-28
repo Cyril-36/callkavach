@@ -99,6 +99,24 @@ async function start() {
     show({ status: "Connecting to audio server…" });
     await connect(s);
 
+    // From here the socket can fail at any time. Before the session is live, record the
+    // failure so setup aborts; once live, tear down; while stopping, report the outcome.
+    const socketFailed = (message) => {
+      if (s.stopping) s.onStopped?.({ ok: false, why: message });
+      else if (session === s) fail(s, `${message[0].toUpperCase()}${message.slice(1)}. Microphone released.`);
+      else s.setupError ??= message;
+    };
+    s.ws.onmessage = ({ data }) => {
+      if (s.done) return;
+      const msg = parse(data);
+      if (msg?.type === "ack") show({ server: serverTotals(msg) });
+      else if (msg?.type === "stopped") { show({ server: serverTotals(msg) }); s.onStopped?.({ ok: true }); }
+      else if (msg?.type === "error") socketFailed(`server error: ${msg.message}`);
+    };
+    s.ws.onclose = (e) => {
+      if (!s.done) socketFailed(`connection to audio server closed (code ${e.code})`);
+    };
+
     // Let the browser pick its native rate; we resample ourselves.
     s.ctx = new AudioContext();
     await s.ctx.audioWorklet.addModule("./pcm-worklet.js");
@@ -106,18 +124,6 @@ async function start() {
     s.node = new AudioWorkletNode(s.ctx, "pcm-capture");
     const resampler = new Resampler(s.ctx.sampleRate, 16000);
     s.sender = new PcmSender(s.ws);
-
-    s.ws.onmessage = ({ data }) => {
-      if (s.done) return;
-      const msg = parse(data);
-      if (msg?.type === "ack") show({ server: serverTotals(msg) });
-      else if (msg?.type === "stopped") { show({ server: serverTotals(msg) }); s.onStopped?.(); }
-      else if (msg?.type === "error") s.stopping ? s.onStopped?.() : fail(s, `Server error: ${msg.message}`);
-    };
-    s.ws.onclose = (e) => {
-      if (s.stopping) s.onStopped?.();
-      else fail(s, `Connection to audio server lost (code ${e.code}). Microphone released.`);
-    };
 
     s.node.port.onmessage = ({ data }) => {
       if (s.done || s.stopping) return; // late message from a stopped or failed session
@@ -133,6 +139,10 @@ async function start() {
     };
     s.source.connect(s.node);
 
+    // No await between this check and going live, so the socket cannot fail unnoticed.
+    if (s.setupError || s.ws.readyState !== WebSocket.OPEN) {
+      throw new Error(`${s.setupError || "connection to audio server closed"} during setup.`);
+    }
     const trackRate = stream.getAudioTracks()[0].getSettings().sampleRate;
     session = s;
     show({
@@ -161,20 +171,21 @@ async function stop() {
   if (s.node) s.node.port.onmessage = null;
   s.sender.flush();
   const socketOpen = s.ws.readyState === WebSocket.OPEN;
-  const stopped = new Promise((resolve) => {
+  // First outcome wins: the server's stopped reply, a server error, an early close, or the timeout.
+  const outcome = new Promise((resolve) => {
     s.onStopped = resolve;
-    if (!socketOpen) resolve();
-    setTimeout(resolve, STOP_TIMEOUT_MS);
+    if (!socketOpen) resolve({ ok: false, why: "connection to audio server was already closed" });
+    setTimeout(() => resolve({ ok: false, why: `server did not confirm within ${STOP_TIMEOUT_MS / 1000} s` }), STOP_TIMEOUT_MS);
   });
   if (socketOpen) s.ws.send(JSON.stringify({ type: "stop" }));
   const clean = await release(s, { keepSocket: true }); // the microphone is released before waiting on the server
-  await stopped;
-  closeSocket(s);
+  const { ok, why } = await outcome;
   s.done = true;
-  show({
-    status: clean ? "Stopped" : "Stopped (audio context did not close cleanly)",
-    sent: `${s.sender.sentSamples} sent, ${s.sender.droppedSamples} dropped`,
-  });
+  closeSocket(s);
+  const status = ok
+    ? (clean ? "Stopped" : "Stopped (audio context did not close cleanly)")
+    : `Stopped, session incomplete: ${why}.${clean ? "" : " Audio context did not close cleanly."}`;
+  show({ status, sent: `${s.sender.sentSamples} sent, ${s.sender.droppedSamples} dropped` });
   $("start").disabled = false;
 }
 
