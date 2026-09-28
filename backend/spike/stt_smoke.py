@@ -73,6 +73,9 @@ def main() -> int:
             body = r.json()
             print(f"language_code: {body.get('language_code')}  request_id: {body.get('request_id')}")
             print(f"transcript: {body.get('transcript')}")
+            if not (body.get("transcript") or "").strip():
+                print("ERROR: HTTP 200 but transcript is empty or missing")
+                failures += 1
         else:
             print(f"ERROR body: {r.text[:500]}")
             failures += 1
