@@ -18,3 +18,5 @@ Create these folders when the first code for each area is ready. Keep API keys i
 `main` is the integration branch. Teammates work on their own branches and open pull requests into `main`. The repository owner, **Cyril-36**, reviews the code, logic, evidence and tests before merging. The [contribution guide](CONTRIBUTING.md) and pull request template make that review explicit. GitHub branch protection is active: it requires a pull request, one approval, a code-owner review, fresh approval after changes, approval of the latest push and resolved review conversations. Force pushes and branch deletion are disabled. The owner is an administrator and can bypass this classic rule for their own integration work; teammates should have collaborator access only.
 
 No automatic merge is authorized. A passing check is necessary but does not replace the owner's review of the logic.
+
+Navadeep's bounded backend assignment and branch instructions are in [navadeep.md](navadeep.md). Agents working on it should also read [AGENTS.md](AGENTS.md).

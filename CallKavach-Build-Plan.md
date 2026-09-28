@@ -4,7 +4,7 @@ Confirmed 29 September 2026. This is the implementation plan; no application has
 
 The acceptance screenshots say the final project must use the same submitted problem statement, with a deadline of **1 October 2026, 11:59 PM IST**. Aim to submit at 8 PM. Check the official group for the actual submission fields and video requirements. The pasted “52 hours” is a historical estimate, not a fresh countdown.
 
-The accepted deck is PS-06, AI for Bharat in Indian Languages. Its actual interaction is a doubtful call on speaker, with CallKavach listening on a **second device**. Preserve that scope. Use one implementation owner across browser audio, backend and integration; a second coding agent, if used, reviews the audio spike, first end-to-end slice and pre-freeze result. Chaitanya approves teammate pull requests and owns final integration. Harshit and Navadeep receive bounded content and testing tasks. The task assignments below are proposed, not sent.
+The accepted deck is PS-06, AI for Bharat in Indian Languages. Its actual interaction is a doubtful call on speaker, with CallKavach listening on a **second device**. Preserve that scope. Use one implementation owner across browser audio, core backend and integration; a second coding agent, if used, reviews the audio spike, first end-to-end slice and pre-freeze result. Chaitanya approves teammate pull requests and owns final integration. Navadeep owns the bounded offline backend evaluation module, and Harshit receives bounded content and testing tasks. These assignments are documented in the repository; no teammate message has been sent.
 
 ## Verdict and required corrections
 
@@ -106,11 +106,11 @@ The pasted 36-family + 160-example + 60-review + 20-recording allocation is subs
 | Person | First deliverable | Due | Acceptance check |
 |---|---|---|---|
 | Harshit | Review warning wording in languages he knows; verify submission fields; test one phone using a supplied checklist | 29 Sep wording/requirements; 30 Sep phone test | Four approved Hindi/Telugu warning sentences across fluent reviewers; exact browser/device and reproducible observations |
-| Navadeep | Six scam outlines and six genuine look-alikes in a supplied template; label first dangerous ask or null | 30 Sep morning | Inspect all 12 for correct semantics, distinct families and plausible language |
+| Navadeep | Own the offline Python evaluation module under `backend/evaluation/`: metric calculations, incremental keyword baseline and tests (roughly 15–20% of backend work). See `navadeep.md`. Script outlines move behind this task. | 30 Sep, 2 PM IST PR | Unit tests pass; Chaitanya reviews definitions, input contract and code before merge |
 | Both | Initially 6–10 consented role-play clips collectively, using reserved scripts, with speaker/language and ask timestamps | 30 Sep evening | Play and inspect every clip; disclose speaker overlap if it cannot be avoided |
 | Both | Review approximately 10–15 generated transcripts each, limited to languages they understand | 30 Sep evening | Explicit accept/reject reason, corrected wording and label check |
 
-We prepare templates, examples, validators, generation scripts, integration and result analysis. Validators catch missing fields and duplicate IDs, not whether labels or language are correct. An exemplar closer to another embedding class is a review flag, not proof of mislabelling. Bootstrap a small reviewed dev set immediately so teammate delivery never blocks the first vertical slice.
+The main implementer prepares any remaining templates, generation scripts, detector integration and result analysis. Navadeep's pure evaluation functions can be built in parallel without API keys. Validators catch missing fields and duplicate IDs, not whether labels or language are correct. An exemplar closer to another embedding class is a review flag, not proof of mislabelling. Bootstrap a small reviewed dev set immediately so teammate delivery never blocks the first vertical slice.
 
 ## Evaluation definitions
 
