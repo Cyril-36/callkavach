@@ -29,7 +29,10 @@ def valid_families():
                 "steps": [
                     {"caller_intent": "Introduce the topic", "example_line": "Hello."},
                     {"caller_intent": "Explain the issue", "example_line": "Please listen."},
-                    {"caller_intent": "Close the call", "example_line": "Goodbye."},
+                    {
+                        "caller_intent": "Make a request" if label == "scam" else "Close the call",
+                        "example_line": "Send money now." if label == "scam" else "Goodbye.",
+                    },
                 ],
                 "first_dangerous_ask_step": 2 if label == "scam" else None,
             })
@@ -50,6 +53,9 @@ class ValidateFamiliesTests(unittest.TestCase):
         self.assertEqual(families, original)
 
     def test_rejects_duplicate_ids_and_pair_counts(self):
+        with self.assertRaisesRegex(ValueError, "exactly 12"):
+            validate_families(valid_families()[:-1])
+
         families = valid_families()
         families[1]["family_id"] = families[0]["family_id"]
         with self.assertRaisesRegex(ValueError, "duplicate family_id"):
@@ -86,6 +92,11 @@ class ValidateFamiliesTests(unittest.TestCase):
         families = valid_families()
         families[0]["steps"][0]["example_line"] = " "
         with self.assertRaisesRegex(ValueError, "empty example_line"):
+            validate_families(families)
+
+        families = valid_families()
+        del families[0]["steps"][0]["caller_intent"]
+        with self.assertRaisesRegex(ValueError, "missing caller_intent"):
             validate_families(families)
 
     def test_rejects_invalid_ask_indices(self):

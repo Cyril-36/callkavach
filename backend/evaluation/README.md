@@ -62,3 +62,26 @@ the transcript prefix available at each point, in chronological order; partial
 segments and repeated finalized segment IDs are ignored. A substring baseline
 cannot understand context: the benign warning "Never share OTP" triggers the
 `OTP` phrase. These synthetic examples are not real-world performance claims.
+
+## Scenario-family seeds
+
+`data/families.json` contains 12 hand-written English outlines: one scam and one
+genuine look-alike for each of six scenario types. Every outline has 3–6 ordered
+caller steps. `first_dangerous_ask_step` is the zero-based index of the first
+request for money, banking credentials, an OTP/PIN, or remote access in a scam;
+it is `null` for genuine calls. The courier's genuine delivery code is for the
+order handoff, not a banking OTP, so that outline has a null dangerous ask.
+
+Validate the file from the repository root with:
+
+```bash
+python3 backend/evaluation/validate_families.py
+```
+
+The validator checks fields, labels, scenario pairs, step counts, IDs and ask
+index bounds. It cannot establish whether a line sounds natural, whether a
+label is correct, or whether the marked ask is semantically the first dangerous
+one. Chaitanya must review all 12 outlines. These are synthetic seeds, not full
+transcripts, a frozen test set, or measured detector results. Do not generate
+the planned held-out transcripts from them until the owner freezes the family
+split.
