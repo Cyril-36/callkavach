@@ -1,0 +1,14 @@
+[
+  {"call_id": "dev-digital-arrest-scam-001", "family_id": "digital-arrest-scam", "label": "scam", "first_ask_at_ms": 36000},
+  {"call_id": "dev-digital-arrest-genuine-001", "family_id": "digital-arrest-genuine", "label": "genuine", "first_ask_at_ms": null},
+  {"call_id": "dev-courier-parcel-scam-001", "family_id": "courier-parcel-scam", "label": "scam", "first_ask_at_ms": 28000},
+  {"call_id": "dev-courier-parcel-genuine-001", "family_id": "courier-parcel-genuine", "label": "genuine", "first_ask_at_ms": null},
+  {"call_id": "dev-kyc-update-scam-001", "family_id": "kyc-update-scam", "label": "scam", "first_ask_at_ms": 16500},
+  {"call_id": "dev-kyc-update-genuine-001", "family_id": "kyc-update-genuine", "label": "genuine", "first_ask_at_ms": null},
+  {"call_id": "dev-bank-card-block-scam-001", "family_id": "bank-card-block-scam", "label": "scam", "first_ask_at_ms": 18500},
+  {"call_id": "dev-bank-card-block-genuine-001", "family_id": "bank-card-block-genuine", "label": "genuine", "first_ask_at_ms": null},
+  {"call_id": "dev-trai-sim-disconnection-scam-001", "family_id": "trai-sim-disconnection-scam", "label": "scam", "first_ask_at_ms": 18500},
+  {"call_id": "dev-trai-sim-disconnection-genuine-001", "family_id": "trai-sim-disconnection-genuine", "label": "genuine", "first_ask_at_ms": null},
+  {"call_id": "dev-electricity-bill-scam-001", "family_id": "electricity-bill-scam", "label": "scam", "first_ask_at_ms": 18500},
+  {"call_id": "dev-electricity-bill-genuine-001", "family_id": "electricity-bill-genuine", "label": "genuine", "first_ask_at_ms": null}
+]
