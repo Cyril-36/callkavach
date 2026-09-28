@@ -1,0 +1,314 @@
+[
+  {
+    "family_id": "digital-arrest-heldout-01-scam",
+    "pair_group_id": "digital-arrest-heldout-01",
+    "label": "scam",
+    "scenario_type": "digital-arrest",
+    "steps": [
+      {
+        "caller_intent": "Refer to a fabricated virtual court notice that the listener has not received through any official channel.",
+        "example_line": "A virtual hearing notice has been issued against your name for an online loan fraud case."
+      },
+      {
+        "caller_intent": "Make a fake video hearing seem more credible by offering a case number and a supposed clerk transfer.",
+        "example_line": "I will connect the court clerk now; keep this case number ready for the video hearing."
+      },
+      {
+        "caller_intent": "Turn the supposed hearing into a private confinement demand.",
+        "example_line": "Stay alone on camera until the magistrate releases you; leaving the call will count as non-compliance."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for remote access under the guise of identity verification.",
+        "example_line": "Install this screen-sharing app and let the clerk control your phone to verify your identity before the hearing."
+      },
+      {
+        "caller_intent": "Reinforce the fake procedure if the listener asks to check the notice independently.",
+        "example_line": "Checking the court site can wait until this confidential hearing is finished."
+      }
+    ],
+    "first_dangerous_ask_step": 3
+  },
+  {
+    "family_id": "digital-arrest-heldout-01-genuine",
+    "pair_group_id": "digital-arrest-heldout-01",
+    "label": "genuine",
+    "scenario_type": "digital-arrest",
+    "steps": [
+      {
+        "caller_intent": "Return a caller's inquiry about an unexpected virtual hearing message.",
+        "example_line": "You asked our court information desk how to check a video hearing notice sent to your phone."
+      },
+      {
+        "caller_intent": "Explain how to check the claimed case independently without accepting the message as authentic.",
+        "example_line": "Please look up the case number through the court's published website or contact details."
+      },
+      {
+        "caller_intent": "Distinguish an official inquiry from a demand to remain on a private call.",
+        "example_line": "You can end this call while you verify the notice; there is no need to stay on camera with me."
+      },
+      {
+        "caller_intent": "Offer the next ordinary route if the case number cannot be found.",
+        "example_line": "If the case number does not appear there, use the court's published contact details to ask the registry."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "courier-parcel-heldout-01-scam",
+    "pair_group_id": "courier-parcel-heldout-01",
+    "label": "scam",
+    "scenario_type": "courier-parcel",
+    "steps": [
+      {
+        "caller_intent": "Claim that an ordinary parcel could not be delivered because the address is incomplete.",
+        "example_line": "Your package is at the local sorting hub because the flat number is missing."
+      },
+      {
+        "caller_intent": "Offer a plausible tracking detail while withholding independent verification.",
+        "example_line": "The tracking record ends in 4821; I can correct the address before the van leaves."
+      },
+      {
+        "caller_intent": "Make the first dangerous request through a look-alike redelivery link that collects card details.",
+        "example_line": "Open the address-fix link I just texted and enter your card details for the small redelivery charge."
+      },
+      {
+        "caller_intent": "Pressure the listener against checking the original merchant order.",
+        "example_line": "The order app will not show this hub correction in time, so use my link now."
+      }
+    ],
+    "first_dangerous_ask_step": 2
+  },
+  {
+    "family_id": "courier-parcel-heldout-01-genuine",
+    "pair_group_id": "courier-parcel-heldout-01",
+    "label": "genuine",
+    "scenario_type": "courier-parcel",
+    "steps": [
+      {
+        "caller_intent": "Respond to a customer's earlier request to reroute an undelivered parcel.",
+        "example_line": "I am following up on the pickup-point change you requested for your parcel."
+      },
+      {
+        "caller_intent": "Have the customer confirm the new location using their existing order channel.",
+        "example_line": "The available pickup point and tracking status are in the merchant app you already use."
+      },
+      {
+        "caller_intent": "Set an ordinary pickup expectation without asking for a code over the phone.",
+        "example_line": "Please wait for the app's ready-for-pickup notice before going to the counter."
+      },
+      {
+        "caller_intent": "Explain the routine identification check at the pickup counter.",
+        "example_line": "When the pickup notice arrives, bring the order's pickup code and your ID to the counter."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "kyc-update-heldout-01-scam",
+    "pair_group_id": "kyc-update-heldout-01",
+    "label": "scam",
+    "scenario_type": "kyc-update",
+    "steps": [
+      {
+        "caller_intent": "Pretend to follow up on a recent address change in a digital wallet, rather than a routine bank KYC deadline.",
+        "example_line": "Your wallet address-change request is pending a video KYC review."
+      },
+      {
+        "caller_intent": "Use the claimed request history to make an outside verification channel sound normal.",
+        "example_line": "The old address is still on file, so a separate review desk must match your identity documents."
+      },
+      {
+        "caller_intent": "Introduce a consequence for declining the outside channel.",
+        "example_line": "The address change cannot be completed until this review is done today."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for identity documents through a caller-supplied upload link.",
+        "example_line": "Open my verification link and upload both sides of your ID card and a live selfie there."
+      }
+    ],
+    "first_dangerous_ask_step": 3
+  },
+  {
+    "family_id": "kyc-update-heldout-01-genuine",
+    "pair_group_id": "kyc-update-heldout-01",
+    "label": "genuine",
+    "scenario_type": "kyc-update",
+    "steps": [
+      {
+        "caller_intent": "Acknowledge a customer-initiated address update in a wallet account.",
+        "example_line": "You contacted us about changing the address shown in your wallet profile."
+      },
+      {
+        "caller_intent": "Explain that any required identity review appears inside the customer's own app.",
+        "example_line": "If verification is needed, the request status and steps will appear when you open the official app yourself."
+      },
+      {
+        "caller_intent": "Allow the customer to stop the call and use published support independently.",
+        "example_line": "You can end this call and contact support from inside the app if the request is missing."
+      },
+      {
+        "caller_intent": "Reject off-channel identity collection.",
+        "example_line": "Do not send me ID photos, a selfie, or a code through a link I give you."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "bank-card-block-heldout-01-scam",
+    "pair_group_id": "bank-card-block-heldout-01",
+    "label": "scam",
+    "scenario_type": "bank-card-block",
+    "steps": [
+      {
+        "caller_intent": "Exploit a lost-card situation by claiming to handle a cardholder's own block request.",
+        "example_line": "Your card-block request after losing the card at the station has reached our desk."
+      },
+      {
+        "caller_intent": "Suggest that the block has a dangerous gap rather than being complete.",
+        "example_line": "The physical card is blocked, but its saved online payments remain active until we finish the second check."
+      },
+      {
+        "caller_intent": "Make the first dangerous request to authorize a UPI collect payment disguised as card-security verification.",
+        "example_line": "Approve the 1,999-rupee UPI collect payment I just sent; it is the card-security verification needed to shut off online payments."
+      },
+      {
+        "caller_intent": "Add loss pressure to discourage calling published support.",
+        "example_line": "If you call the number on the card later, an online purchase may go through first."
+      }
+    ],
+    "first_dangerous_ask_step": 2
+  },
+  {
+    "family_id": "bank-card-block-heldout-01-genuine",
+    "pair_group_id": "bank-card-block-heldout-01",
+    "label": "genuine",
+    "scenario_type": "bank-card-block",
+    "steps": [
+      {
+        "caller_intent": "Follow up on a cardholder's own lost-card block request.",
+        "example_line": "I am returning your request about the card you reported missing at the station."
+      },
+      {
+        "caller_intent": "Direct the cardholder to independently confirm the existing block status.",
+        "example_line": "Please check the card status in your bank app or call the published support number."
+      },
+      {
+        "caller_intent": "Explain the ordinary next step without inviting reactivation on this call.",
+        "example_line": "You can request a replacement card through those same bank channels."
+      },
+      {
+        "caller_intent": "Give the next ordinary step after a confirmed block.",
+        "example_line": "The replacement-card request and its delivery status will appear in the same app."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "trai-sim-disconnection-heldout-01-scam",
+    "pair_group_id": "trai-sim-disconnection-heldout-01",
+    "label": "scam",
+    "scenario_type": "trai-sim-disconnection",
+    "steps": [
+      {
+        "caller_intent": "Claim regulator involvement in a duplicate eSIM request made without the listener's consent.",
+        "example_line": "A second eSIM has been requested for your number, and the telecom regulator has flagged it."
+      },
+      {
+        "caller_intent": "Frame loss of the current SIM as the near-term consequence.",
+        "example_line": "Your present SIM will stop working when that new eSIM activates later today."
+      },
+      {
+        "caller_intent": "Pretend a code is needed to cancel the duplicate request.",
+        "example_line": "I can reverse the activation from this desk before the disconnection happens."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for the carrier activation code.",
+        "example_line": "Read me the eSIM activation code the carrier just sent you so I can cancel the duplicate."
+      },
+      {
+        "caller_intent": "Block independent checking after the code demand.",
+        "example_line": "Do not visit the carrier store until this cancellation is complete."
+      }
+    ],
+    "first_dangerous_ask_step": 3
+  },
+  {
+    "family_id": "trai-sim-disconnection-heldout-01-genuine",
+    "pair_group_id": "trai-sim-disconnection-heldout-01",
+    "label": "genuine",
+    "scenario_type": "trai-sim-disconnection",
+    "steps": [
+      {
+        "caller_intent": "Return a customer's inquiry about a SIM replacement request they made themselves.",
+        "example_line": "You asked when your old SIM will stop working after your replacement request."
+      },
+      {
+        "caller_intent": "Explain the service transition without claiming an unverified regulator order.",
+        "example_line": "The old SIM's status is visible in your carrier account as the replacement is processed."
+      },
+      {
+        "caller_intent": "Provide a carrier-controlled verification route for an unexpected duplicate request.",
+        "example_line": "If you did not request a replacement, contact the carrier through its app or store immediately."
+      },
+      {
+        "caller_intent": "Avoid requesting activation secrets on the call.",
+        "example_line": "Do not read an activation code to me or to anyone who calls you."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "electricity-bill-heldout-01-scam",
+    "pair_group_id": "electricity-bill-heldout-01",
+    "label": "scam",
+    "scenario_type": "electricity-bill",
+    "steps": [
+      {
+        "caller_intent": "Claim that a disputed meter reading created a billing-account mismatch, rather than an unpaid bill.",
+        "example_line": "The meter photo on your reading dispute does not match the number linked to your electricity account."
+      },
+      {
+        "caller_intent": "Use a supposed inspection workflow to create credibility.",
+        "example_line": "An inspector has opened a correction ticket, but the account must be verified before the visit."
+      },
+      {
+        "caller_intent": "Threaten suspension as a consequence of failing the fake verification.",
+        "example_line": "If the meter is not matched today, service to this account will be suspended automatically."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for device access rather than a bill payment.",
+        "example_line": "Install our inspection app and enable screen sharing so I can fix the meter record on your phone."
+      },
+      {
+        "caller_intent": "Dismiss the utility's normal dispute channel.",
+        "example_line": "The public portal cannot clear this internal ticket, so keep the screen-sharing session open."
+      }
+    ],
+    "first_dangerous_ask_step": 3
+  },
+  {
+    "family_id": "electricity-bill-heldout-01-genuine",
+    "pair_group_id": "electricity-bill-heldout-01",
+    "label": "genuine",
+    "scenario_type": "electricity-bill",
+    "steps": [
+      {
+        "caller_intent": "Follow up on a customer's submitted meter-reading dispute.",
+        "example_line": "I am calling about the meter-reading complaint you filed for your electricity account."
+      },
+      {
+        "caller_intent": "Describe a normal review path rather than demanding immediate settlement.",
+        "example_line": "The reading will be reviewed against the meter record, and an inspection may be scheduled."
+      },
+      {
+        "caller_intent": "Give an independently verifiable status source.",
+        "example_line": "You can track the complaint in the utility's official account portal or through published support."
+      },
+      {
+        "caller_intent": "Set an ordinary follow-up expectation for the complaint.",
+        "example_line": "Keep the complaint reference number; the account portal will show the result after the reading is checked."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  }
+]
