@@ -15,12 +15,20 @@ uv run backend/spike/stt_smoke.py backend/spike/samples/te_en_digital_arrest.wav
 
 Add `--model saaras:v4` to compare models. Exit code: 0 all succeeded, 1 an API error, 2 no key.
 
-## WebSocket audio receiver
+## WebSocket audio receiver and Sarvam relay
 
-`audio_ws.py` accepts `/ws/audio`: a JSON start message declaring `pcm_s16le`, mono, 16 kHz, then binary frames (non-empty, whole 16-bit samples, at most 1 s each). Each frame is acknowledged with cumulative samples and duration; `{"type": "stop"}` ends the session. Limits: 15 min of audio per session, 4 concurrent sessions, 10 s to send the start message. Audio is counted and discarded, never stored. It also serves `frontend/spike/` at `/`, so the browser capture page streams to it from the same origin (see `frontend/spike/README.md`). Not yet connected to Sarvam.
+`audio_ws.py` accepts `/ws/audio`: a JSON start message declaring `pcm_s16le`, mono, 16 kHz and `language_code` (`te-IN`, `hi-IN` or `en-IN`), then binary frames (non-empty, whole 16-bit samples, at most 1 s each). The server opens a Sarvam realtime session (`stt_provider.py`: `saaras:v3`, `codemix`, raw PCM, VAD events, flush) before replying `ready`, acknowledges every frame, and relays audio through a queue capped at 5 s; frames beyond that are dropped and reported as `gap` events. Sarvam's `START_SPEECH`/`END_SPEECH` become `speech` events and each final transcript is forwarded once. Sarvam's streaming API sends final transcripts per utterance, not partials. Stop flushes Sarvam, waits up to 5 s for the final transcript, closes the provider and replies `stopped` with `transcription: complete | incomplete`. Provider failures close the browser socket with `provider_error` (1011). `SARVAM_API_KEY` stays on the server (environment or repo `.env`). Nothing is stored. Limits: 15 min of audio per session, 4 concurrent sessions, 10 s to send the start message.
 
 ```bash
-uv run --no-project --with "fastapi>=0.115" --with httpx --with pytest pytest -q backend/spike/test_audio_ws.py
+uv run --no-project --with "fastapi>=0.115" --with httpx --with pytest --with websockets pytest -q backend/spike/test_audio_ws.py
+```
+
+Tests use a scripted fake provider; `STT_PROVIDER=mock` runs the server with a local stand-in (one "mock segment" per second of audio) for browser tests without Sarvam calls.
+
+Real relay check: with the server running (see `frontend/spike/README.md`), stream a WAV in real time and print every event with its arrival time:
+
+```bash
+uv run backend/spike/relay_smoke.py backend/spike/samples/te_en_digital_arrest.wav te-IN
 ```
 
 Samples are synthetic TTS (clean studio audio, one speaker). They do not represent speakerphone audio picked up by a second device; results here are not an accuracy claim.

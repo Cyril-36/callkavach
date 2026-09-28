@@ -1,5 +1,6 @@
 // Browser-only lifecycle tests for capture.js against the real /ws/audio server.
-// Serve with the FastAPI spike (backend/spike/audio_ws.py) and open lifecycle.test.html.
+// Serve with the FastAPI spike in mock-provider mode (STT_PROVIDER=mock, no Sarvam calls)
+// and open lifecycle.test.html.
 const $ = (id) => document.getElementById(id);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 async function until(pred, ms = 5000) {
@@ -181,7 +182,7 @@ async function stopExpectingIncomplete(label, replace, reason) {
   const restore = interceptStopMessage(replace);
   try {
     $("stop").click();
-    await until(() => $("status").textContent.startsWith("Stopped"), 4000);
+    await until(() => $("status").textContent.startsWith("Stopped"), 12000);
   } finally {
     restore();
   }
@@ -192,7 +193,7 @@ async function stopExpectingIncomplete(label, replace, reason) {
 }
 
 await test("Stop without the server's stopped reply reports a timeout", async () => {
-  await stopExpectingIncomplete("timeout", () => {}, "did not confirm within 2 s");
+  await stopExpectingIncomplete("timeout", () => {}, "did not confirm within 8 s");
 });
 
 await test("Stop answered by a server error reports the error", async () => {
@@ -209,6 +210,38 @@ await test("a normal Stop reports success only after the server's reply", async 
   await until(() => $("status").textContent.startsWith("Stopped"));
   assert($("status").textContent === "Stopped", `"${$("status").textContent}"`);
   assert(samplesIn("server") === samplesIn("sent"), "server total does not match sent");
+});
+
+const lines = () => [...$("transcript").children].map((li) => li.textContent);
+
+await test("final transcript segments appear once and Stop waits for the flushed segment", async () => {
+  await startListening();
+  await until(() => lines().includes("mock segment 1"), 4000); // mock emits one segment per second of audio
+  $("stop").click();
+  await until(() => $("status").textContent.startsWith("Stopped"));
+  assert($("status").textContent === "Stopped", `"${$("status").textContent}"`);
+  const got = lines();
+  assert(new Set(got).size === got.length, `duplicate segments: ${got.join(" | ")}`);
+  assert(got.length >= 2, `flushed segment missing: ${got.join(" | ")}`);
+  assert($("provisional").textContent === "", "provisional text left after Stop");
+});
+
+await test("audio dropped by the browser is shown as a gap and makes the session incomplete", async () => {
+  await startListening();
+  const desc = Object.getOwnPropertyDescriptor(RealWS.prototype, "bufferedAmount");
+  Object.defineProperty(RealWS.prototype, "bufferedAmount", { configurable: true, get: () => 1e9 });
+  try {
+    await until(() => lines().some((t) => t.startsWith("[gap:") && t.includes("not sent")));
+  } finally {
+    Object.defineProperty(RealWS.prototype, "bufferedAmount", desc);
+  }
+  await until(() => !$("sent").textContent.endsWith(" 0 dropped"));
+  $("stop").click();
+  await until(() => $("status").textContent.startsWith("Stopped"));
+  const status = $("status").textContent;
+  assert(status.startsWith("Stopped, session incomplete") && status.includes("not sent"), `"${status}"`);
+  assert(lines().filter((t) => t.startsWith("[gap:")).length === 1, `gaps not coalesced: ${lines().join(" | ")}`);
+  assertReleased("client gap");
 });
 
 results.push(results.every((r) => r.startsWith("PASS")) ? "\nALL PASSED" : "\nFAILURES");

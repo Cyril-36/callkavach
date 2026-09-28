@@ -1,8 +1,8 @@
 import { Resampler, toInt16 } from "./resample.js";
 import { PcmSender } from "./pcm-sender.js";
 
-const READY_TIMEOUT_MS = 5000;
-const STOP_TIMEOUT_MS = 2000;
+const READY_TIMEOUT_MS = 12000; // includes the server opening the transcription session
+const STOP_TIMEOUT_MS = 8000; // the server waits up to 5 s for the final transcript
 const $ = (id) => document.getElementById(id);
 let session = null;
 
@@ -21,6 +21,26 @@ function parse(data) {
 
 const serverTotals = (m) => `${m.samples} samples (${m.duration_s.toFixed(2)} s)`;
 
+function addLine(text, kind) {
+  const li = document.createElement("li");
+  li.textContent = text;
+  if (kind) li.className = kind;
+  $("transcript").append(li);
+  return li;
+}
+
+// Audio that never reached the transcriber is shown in the transcript as a gap.
+function noteGap(s, samples, source) {
+  const key = `${source}-gap`;
+  if (s.lastGap?.kind === key && $("transcript").lastElementChild === s.lastGap.li) {
+    s.lastGap.samples += samples;
+  } else {
+    s.lastGap = { kind: key, samples, li: addLine("", `gap ${source}`) };
+  }
+  const why = source === "client" ? "not sent, connection too slow" : "not transcribed, server could not keep up";
+  s.lastGap.li.textContent = `[gap: ${(s.lastGap.samples / 16000).toFixed(2)} s ${why}]`;
+}
+
 // Opens the socket, declares the audio format and resolves once the server says ready.
 function connect(s) {
   return new Promise((resolve, reject) => {
@@ -28,7 +48,9 @@ function connect(s) {
     ws.binaryType = "arraybuffer";
     s.ws = ws;
     const timer = setTimeout(() => reject(new Error("audio server did not answer in time.")), READY_TIMEOUT_MS);
-    ws.onopen = () => ws.send(JSON.stringify({ type: "start", encoding: "pcm_s16le", channels: 1, sample_rate: 16000 }));
+    ws.onopen = () => ws.send(JSON.stringify({
+      type: "start", encoding: "pcm_s16le", channels: 1, sample_rate: 16000, language_code: $("language").value,
+    }));
     ws.onmessage = ({ data }) => {
       clearTimeout(timer);
       const msg = parse(data);
@@ -94,7 +116,9 @@ async function start() {
     return;
   }
 
-  const s = { stream, done: false, stopping: false, inSamples: 0, outSamples: 0 };
+  const s = { stream, done: false, stopping: false, inSamples: 0, outSamples: 0, segments: new Set() };
+  $("transcript").replaceChildren();
+  show({ provisional: "" });
   try {
     show({ status: "Connecting to audio server…" });
     await connect(s);
@@ -110,8 +134,19 @@ async function start() {
       if (s.done) return;
       const msg = parse(data);
       if (msg?.type === "ack") show({ server: serverTotals(msg) });
-      else if (msg?.type === "stopped") { show({ server: serverTotals(msg) }); s.onStopped?.({ ok: true }); }
-      else if (msg?.type === "error") socketFailed(`server error: ${msg.message}`);
+      else if (msg?.type === "speech") show({ provisional: msg.state === "started" ? "Speech detected…" : "Transcribing…" });
+      else if (msg?.type === "transcript") {
+        if (!msg.final) show({ provisional: `${msg.text} (provisional)` });
+        else if (!s.segments.has(msg.segment_id)) { // each finalized segment is shown once
+          s.segments.add(msg.segment_id);
+          addLine(msg.text);
+          show({ provisional: "" });
+        }
+      } else if (msg?.type === "gap") noteGap(s, msg.samples, "server");
+      else if (msg?.type === "stopped") {
+        show({ server: serverTotals(msg) });
+        s.onStopped?.(msg.transcription === "complete" ? { ok: true } : { ok: false, why: `transcription incomplete: ${msg.reason}` });
+      } else if (msg?.type === "error") socketFailed(`server error: ${msg.message}`);
     };
     s.ws.onclose = (e) => {
       if (!s.done) socketFailed(`connection to audio server closed (code ${e.code})`);
@@ -130,7 +165,9 @@ async function start() {
       const pcm16 = toInt16(resampler.process(data)); // 16 kHz Int16 mono; not stored
       s.inSamples += data.length;
       s.outSamples += pcm16.length;
+      const dropped = s.sender.droppedSamples;
       s.sender.push(pcm16);
+      if (s.sender.droppedSamples > dropped) noteGap(s, s.sender.droppedSamples - dropped, "client");
       show({
         duration: `${(s.inSamples / s.ctx.sampleRate).toFixed(2)} s`,
         outCount: `${s.outSamples} (${(s.outSamples / 16000).toFixed(2)} s at 16 kHz)`,
@@ -146,7 +183,7 @@ async function start() {
     const trackRate = stream.getAudioTracks()[0].getSettings().sampleRate;
     session = s;
     show({
-      status: "Listening (audio is streamed to the local server, not stored)",
+      status: "Listening (audio is transcribed by Sarvam via the local server; nothing is stored)",
       rate: `${s.ctx.sampleRate} Hz (AudioContext)${trackRate ? `, track reports ${trackRate} Hz` : ""}`,
       duration: "0.00 s",
       outCount: "0",
@@ -169,7 +206,9 @@ async function stop() {
   s.stopping = true;
   $("stop").disabled = true;
   if (s.node) s.node.port.onmessage = null;
+  const dropped = s.sender.droppedSamples;
   s.sender.flush();
+  if (s.sender.droppedSamples > dropped) noteGap(s, s.sender.droppedSamples - dropped, "client");
   const socketOpen = s.ws.readyState === WebSocket.OPEN;
   // First outcome wins: the server's stopped reply, a server error, an early close, or the timeout.
   const outcome = new Promise((resolve) => {
@@ -179,7 +218,12 @@ async function stop() {
   });
   if (socketOpen) s.ws.send(JSON.stringify({ type: "stop" }));
   const clean = await release(s, { keepSocket: true }); // the microphone is released before waiting on the server
-  const { ok, why } = await outcome;
+  let { ok, why } = await outcome;
+  if (ok && s.sender.droppedSamples) {
+    ok = false;
+    why = `${(s.sender.droppedSamples / 16000).toFixed(2)} s of audio was not sent`;
+  }
+  show({ provisional: "" });
   s.done = true;
   closeSocket(s);
   const status = ok
