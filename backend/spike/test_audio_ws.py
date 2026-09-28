@@ -97,9 +97,20 @@ def default_provider(monkeypatch):
     monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 2.0)
 
 
+class LocalClient:
+    """TestClient sends Host: testserver for WebSockets (base_url is ignored), which the relay refuses.
+    Default every connection to a trusted local Host, like a browser on http://127.0.0.1:8766."""
+
+    def __init__(self):
+        self._client = TestClient(audio_ws.app)
+
+    def websocket_connect(self, url, headers=None):
+        return self._client.websocket_connect(url, headers={"host": "127.0.0.1:8766", **(headers or {})})
+
+
 @pytest.fixture
 def client():
-    return TestClient(audio_ws.app)
+    return LocalClient()
 
 
 def open_session(ws, start=START):
@@ -552,7 +563,7 @@ def test_disconnect_with_hanging_provider_close_releases_the_session(client, mon
     assert FakeProvider.instances[0].close_called
 
 
-# --- origin boundary ---
+# --- trusted host and origin boundary ---
 
 def counting_provider(monkeypatch):
     calls = []
@@ -564,33 +575,49 @@ def counting_provider(monkeypatch):
     return calls
 
 
-def test_same_origin_browser_connection_is_accepted(client, monkeypatch):
-    calls = counting_provider(monkeypatch)
-    with client.websocket_connect("/ws/audio", headers={"origin": "http://testserver"}) as ws:
-        open_session(ws)
-    assert calls == ["te-IN"]
-
-
-def test_connection_without_origin_is_accepted_for_cli_clients(client, monkeypatch):
-    calls = counting_provider(monkeypatch)
-    with client.websocket_connect("/ws/audio") as ws:  # like relay_smoke.py: no Origin header
-        open_session(ws)
-    assert calls == ["te-IN"]
-
-
-@pytest.mark.parametrize("origin", [
-    "http://evil.example",
-    "https://testserver.evil.example",
-    "http://testserver:9999",  # same host name, different port is a different origin
-    "null",
-    "file://",
+@pytest.mark.parametrize("host,origin", [
+    ("127.0.0.1:8766", "http://127.0.0.1:8766"),
+    ("localhost:8766", "http://localhost:8766"),
+    ("LOCALHOST:8766", "http://localhost:8766"),  # host names are case-insensitive
+    ("[::1]:8766", "http://[::1]:8766"),
+    ("localhost", "http://localhost:80"),  # default port on either side
+    ("127.0.0.1:8766", None),  # CLI client (relay_smoke.py) sends no Origin
+    ("localhost:8766", None),
 ])
-def test_cross_origin_connection_is_refused_before_any_provider_session(client, monkeypatch, origin):
+def test_trusted_local_host_is_accepted(client, monkeypatch, host, origin):
     calls = counting_provider(monkeypatch)
+    headers = {"host": host, **({"origin": origin} if origin else {})}
+    with client.websocket_connect("/ws/audio", headers=headers) as ws:
+        open_session(ws)
+    assert calls == ["te-IN"]
+
+
+@pytest.mark.parametrize("host,origin", [
+    # DNS rebinding: attacker's domain resolves to 127.0.0.1, so Host and Origin match each other.
+    ("evil.example:8766", "http://evil.example:8766"),
+    ("evil.example:8766", None),  # untrusted Host is refused even without an Origin
+    ("localhost.evil.example:8766", "http://localhost.evil.example:8766"),
+    ("127.0.0.1.nip.io:8766", "http://127.0.0.1.nip.io:8766"),
+    ("0.0.0.0:8766", "http://0.0.0.0:8766"),
+    ("", None),  # missing Host
+    # Trusted Host, foreign Origin.
+    ("127.0.0.1:8766", "http://evil.example"),
+    ("127.0.0.1:8766", "https://127.0.0.1.evil.example"),
+    ("127.0.0.1:8766", "http://127.0.0.1:9999"),  # same host, different port
+    ("127.0.0.1:8766", "http://localhost:8766"),  # different host name is a different origin
+    ("127.0.0.1:8766", "null"),
+    ("127.0.0.1:8766", "file://"),
+    ("127.0.0.1:8766", "http://user@127.0.0.1:8766"),
+    ("127.0.0.1:8766", "http://127.0.0.1:8766/path"),
+    ("localhost:8766", "http://localhost"),  # Origin defaults to port 80
+])
+def test_untrusted_host_or_origin_is_refused_before_any_provider_session(client, monkeypatch, host, origin):
+    calls = counting_provider(monkeypatch)
+    headers = {"host": host, **({"origin": origin} if origin else {})}
     with pytest.raises(WebSocketDisconnect) as refused:
-        with client.websocket_connect("/ws/audio", headers={"origin": origin}) as ws:
+        with client.websocket_connect("/ws/audio", headers=headers) as ws:
             ws.send_json(START)
             ws.receive_json()
     assert refused.value.code == 1008
-    assert calls == [], "connect_provider was called for a refused origin"
+    assert calls == [], "connect_provider was called for a refused request"
     assert audio_ws.active_sessions == 0

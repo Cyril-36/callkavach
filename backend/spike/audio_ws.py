@@ -19,9 +19,10 @@ Any violation or provider failure gets {"type": "error", "code", "message"} and 
 This app does not save recordings or transcripts: audio is held only in the bounded relay queue and is
 sent to Sarvam for transcription (Sarvam's own retention is governed by its terms, not by this code).
 
-Local-spike security: browser connections from a different origin are rejected before any Sarvam session
-is opened. Browsers always send Origin on WebSocket upgrades; non-browser clients (such as relay_smoke.py)
-send none and are allowed. An Origin check is not authentication - any non-browser client can set or omit
+Local-spike security: the Host header must be localhost, 127.0.0.1 or [::1] (stopping DNS rebinding),
+and a browser Origin must match that host and port exactly; anything else is refused before any Sarvam
+session is opened. Browsers always send Origin on WebSocket upgrades; non-browser clients (such as
+relay_smoke.py) send none and are allowed on a trusted Host. An Origin check is not authentication - any non-browser client can set or omit
 the header - so a public deployment additionally needs authentication and rate limits.
 """
 import asyncio
@@ -65,19 +66,45 @@ async def _fail(ws: WebSocket, code: str, message: str, close_code: int) -> None
     await ws.close(code=close_code)
 
 
-def _same_origin(ws: WebSocket) -> bool:
-    """True if there is no Origin header (non-browser client) or it names this server's own host."""
+TRUSTED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})  # local spike only
+_DEFAULT_PORTS = {"http": 80, "ws": 80, "https": 443, "wss": 443}
+
+
+def _host_port(netloc: str, scheme: str):
+    """(hostname, port) from a Host header or URL netloc, or None if it cannot be parsed."""
+    try:
+        parts = urlsplit(f"//{netloc}")
+        port = parts.port or _DEFAULT_PORTS[scheme]
+    except (ValueError, KeyError):
+        return None
+    if not parts.hostname or parts.username is not None or parts.password is not None:
+        return None
+    return parts.hostname.lower(), port
+
+
+def _trusted_request(ws: WebSocket) -> bool:
+    """Host must be a trusted local host; a browser Origin must be exactly that host and port.
+
+    The Host allowlist stops DNS rebinding (an attacker's domain resolving to 127.0.0.1 would send a
+    matching Host and Origin of that domain). Clients without an Origin (non-browser, e.g.
+    relay_smoke.py) are accepted only on a trusted Host.
+    """
+    host = _host_port(ws.headers.get("host", ""), ws.url.scheme)
+    if host is None or host[0] not in TRUSTED_HOSTS:
+        return False
     origin = ws.headers.get("origin")
     if origin is None:
         return True
     parts = urlsplit(origin)
-    return parts.scheme in ("http", "https") and parts.netloc.lower() == ws.headers.get("host", "").lower()
+    if parts.scheme not in ("http", "https") or parts.path not in ("", "/") or parts.query or parts.fragment:
+        return False
+    return _host_port(parts.netloc, parts.scheme) == host
 
 
 @app.websocket("/ws/audio")
 async def audio(ws: WebSocket) -> None:
     global active_sessions
-    if not _same_origin(ws):
+    if not _trusted_request(ws):
         await ws.close(code=1008)  # before accept: the upgrade is refused with HTTP 403, no session is opened
         return
     await ws.accept()
