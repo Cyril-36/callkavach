@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import re
 import sys
 
 try:
@@ -17,14 +18,19 @@ except ImportError:  # Direct script invocation from the repository root.
 DATA_DIR = Path(__file__).parent / "data"
 TRUTH_FIELDS = {"call_id", "family_id", "pair_group_id", "label", "first_ask_at_ms"}
 LANGUAGES = {"hi-en", "te-en"}
+EXPECTED_PAIRS = {
+    (language, pair)
+    for language in LANGUAGES
+    for pair in {"digital-arrest-seed-01", "kyc-update-seed-01"}
+} | {("te-en", "courier-parcel-seed-01")}
 
 
 def validate_pilot(transcripts, truth, families, english_transcripts, heldout_families):
     """Check structure and lineage; semantic and language review remains human work."""
-    if not isinstance(transcripts, list) or len(transcripts) != 4:
-        raise ValueError("expected four pilot transcripts")
-    if not isinstance(truth, list) or len(truth) != 4:
-        raise ValueError("expected four pilot ground-truth records")
+    if not isinstance(transcripts, list) or len(transcripts) != 10:
+        raise ValueError("expected ten pilot transcripts")
+    if not isinstance(truth, list) or len(truth) != 10:
+        raise ValueError("expected ten pilot ground-truth records")
     if not all(isinstance(items, list) for items in (families, english_transcripts, heldout_families)):
         raise ValueError("reference data must be lists")
 
@@ -44,6 +50,8 @@ def validate_pilot(transcripts, truth, families, english_transcripts, heldout_fa
         _fields(transcript, TRANSCRIPT_FIELDS, "transcript")
         call_id = transcript["call_id"]
         _nonempty_string(call_id, "call_id")
+        if not re.fullmatch(r"p-[0-9a-f]{8}", call_id):
+            raise ValueError(f"call {call_id} needs an opaque pilot ID")
         if call_id in calls or call_id in english_ids:
             raise ValueError(f"duplicate or reused call_id: {call_id}")
         calls[call_id] = transcript
@@ -115,9 +123,8 @@ def validate_pilot(transcripts, truth, families, english_transcripts, heldout_fa
 
     if calls.keys() != truth_by_id.keys():
         raise ValueError("transcript and ground-truth call IDs differ")
-    if set(pair_labels) != {("hi-en", "kyc-update-seed-01"),
-                            ("te-en", "courier-parcel-seed-01")}:
-        raise ValueError("pilot must cover the two selected development pairs")
+    if set(pair_labels) != EXPECTED_PAIRS:
+        raise ValueError("pilot must cover all five selected language/pair groups")
     if any(labels != {"scam", "genuine"} for labels in pair_labels.values()):
         raise ValueError("each pilot pair needs one scam and one genuine call")
 
@@ -137,7 +144,7 @@ def main():
     except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         print(f"Invalid multilingual pilot: {error}", file=sys.stderr)
         return 1
-    print("Validated four candidate multilingual development calls")
+    print("Validated ten candidate multilingual development calls")
     return 0
 
 

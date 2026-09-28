@@ -124,12 +124,30 @@ label is present.
 ## Multilingual development pilot
 
 `data/multilingual_pilot_transcripts.json` and
-`data/multilingual_pilot_ground_truth.json` contain four **candidate** calls:
-one Hindi-English KYC pair and one Telugu-English courier pair. Their existing
-development family IDs and pair-group IDs are recorded in ground truth. These
-drafts received the language and annotation review recorded in
-`MULTILINGUAL_PILOT_REVIEW.md`. They are not held-out calls.
-Only the transcript file is detector input.
+`data/multilingual_pilot_ground_truth.json` contain ten **candidate** calls:
+digital-arrest and KYC scam/genuine pairs in both Hindi-English and
+Telugu-English, plus a Telugu-English courier pair. Opaque call IDs join
+raw transcript fixtures to evaluator-only family lineage, labels and first
+asks. All families are on the development side. Independent fluent-speaker
+review is pending; see `MULTILINGUAL_PILOT_REVIEW.md`.
+
+The raw transcript JSON is an **evaluation fixture, not detector input**.
+For each newly finalized turn, use `detector_view` to create a bounded prefix:
+
+```python
+from backend.evaluation.detector_view import detector_view
+
+for count in range(1, len(transcript["segments"]) + 1):
+    prefix = detector_view(transcript, count)
+    # Send only prefix to the incremental detector; never the raw fixture.
+```
+
+The projection includes only `language` and ordered segment `text`,
+`start_at_ms`, and `end_at_ms`. It excludes call IDs, speakers, labels,
+lineage, first asks and future turns. Never send raw fixtures or ground truth
+to Gemini. Segment-start first-ask times are coarse scripted annotations, not
+measured speech or detector alert times. Only an actual detector run may
+produce alert timestamps.
 
 ```bash
 python3 backend/evaluation/validate_multilingual_pilot.py

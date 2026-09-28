@@ -1,6 +1,72 @@
 [
-  {"call_id": "pilot-hi-en-kyc-scam-001", "family_id": "kyc-update-scam", "pair_group_id": "kyc-update-seed-01", "label": "scam", "first_ask_at_ms": 27600},
-  {"call_id": "pilot-hi-en-kyc-genuine-001", "family_id": "kyc-update-genuine", "pair_group_id": "kyc-update-seed-01", "label": "genuine", "first_ask_at_ms": null},
-  {"call_id": "pilot-te-en-courier-scam-001", "family_id": "courier-parcel-scam", "pair_group_id": "courier-parcel-seed-01", "label": "scam", "first_ask_at_ms": 28900},
-  {"call_id": "pilot-te-en-courier-genuine-001", "family_id": "courier-parcel-genuine", "pair_group_id": "courier-parcel-seed-01", "label": "genuine", "first_ask_at_ms": null}
+  {
+    "call_id": "p-4c2e9a10",
+    "family_id": "digital-arrest-scam",
+    "pair_group_id": "digital-arrest-seed-01",
+    "label": "scam",
+    "first_ask_at_ms": 31020
+  },
+  {
+    "call_id": "p-8b71d3f4",
+    "family_id": "digital-arrest-genuine",
+    "pair_group_id": "digital-arrest-seed-01",
+    "label": "genuine",
+    "first_ask_at_ms": null
+  },
+  {
+    "call_id": "p-0f6a52c8",
+    "family_id": "kyc-update-scam",
+    "pair_group_id": "kyc-update-seed-01",
+    "label": "scam",
+    "first_ask_at_ms": 21280
+  },
+  {
+    "call_id": "p-73d0be61",
+    "family_id": "kyc-update-genuine",
+    "pair_group_id": "kyc-update-seed-01",
+    "label": "genuine",
+    "first_ask_at_ms": null
+  },
+  {
+    "call_id": "p-a91c407e",
+    "family_id": "digital-arrest-scam",
+    "pair_group_id": "digital-arrest-seed-01",
+    "label": "scam",
+    "first_ask_at_ms": 27870
+  },
+  {
+    "call_id": "p-2d64f8b9",
+    "family_id": "digital-arrest-genuine",
+    "pair_group_id": "digital-arrest-seed-01",
+    "label": "genuine",
+    "first_ask_at_ms": null
+  },
+  {
+    "call_id": "p-5e3b10a7",
+    "family_id": "kyc-update-scam",
+    "pair_group_id": "kyc-update-seed-01",
+    "label": "scam",
+    "first_ask_at_ms": 32190
+  },
+  {
+    "call_id": "p-c7a4820d",
+    "family_id": "kyc-update-genuine",
+    "pair_group_id": "kyc-update-seed-01",
+    "label": "genuine",
+    "first_ask_at_ms": null
+  },
+  {
+    "call_id": "p-19f0c65b",
+    "family_id": "courier-parcel-scam",
+    "pair_group_id": "courier-parcel-seed-01",
+    "label": "scam",
+    "first_ask_at_ms": 30420
+  },
+  {
+    "call_id": "p-e60d2a93",
+    "family_id": "courier-parcel-genuine",
+    "pair_group_id": "courier-parcel-seed-01",
+    "label": "genuine",
+    "first_ask_at_ms": null
+  }
 ]

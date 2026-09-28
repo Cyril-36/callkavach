@@ -36,6 +36,10 @@ class MultilingualPilotTests(unittest.TestCase):
             validate_pilot(*data)
         data = fixture()
         data[0][0]["call_id"] = data[3][0]["call_id"]
+        with self.assertRaisesRegex(ValueError, "opaque pilot ID"):
+            validate_pilot(*data)
+        data = fixture()
+        data[3][0]["call_id"] = data[0][0]["call_id"]
         with self.assertRaisesRegex(ValueError, "duplicate or reused call_id"):
             validate_pilot(*data)
 
@@ -75,7 +79,7 @@ class MultilingualPilotTests(unittest.TestCase):
     def test_rejects_missing_pair_or_wrong_language(self):
         data = fixture()
         data[0][1]["language"] = "te-en"
-        with self.assertRaisesRegex(ValueError, "pilot must cover"):
+        with self.assertRaisesRegex(ValueError, "duplicate genuine"):
             validate_pilot(*data)
         data = fixture()
         data[1][1]["label"] = "scam"
@@ -87,6 +91,42 @@ class MultilingualPilotTests(unittest.TestCase):
         data[4][0]["pair_group_id"] = "kyc-update-seed-01"
         with self.assertRaisesRegex(ValueError, "pair-group IDs overlap"):
             validate_pilot(*data)
+
+    def test_scripted_ask_locations_match_reviewed_request_lines(self):
+        transcripts, truth, *_ = fixture()
+        calls = {call["call_id"]: call for call in transcripts}
+        expected = {
+            "p-4c2e9a10": (7, "₹18,000"),
+            "p-0f6a52c8": (5, "banking OTP"),
+            "p-a91c407e": (6, "₹12,000"),
+            "p-5e3b10a7": (8, "banking OTP"),
+            "p-19f0c65b": (7, "₹2,500"),
+        }
+        for record in truth:
+            if record["label"] == "genuine":
+                self.assertIsNone(record["first_ask_at_ms"])
+                continue
+            index, request_phrase = expected[record["call_id"]]
+            segment = calls[record["call_id"]]["segments"][index - 1]
+            self.assertEqual(record["first_ask_at_ms"], segment["start_at_ms"])
+            self.assertIn(request_phrase, segment["text"])
+
+    def test_turn_count_and_ask_position_are_varied(self):
+        transcripts, truth, *_ = fixture()
+        lengths = {len(call["segments"]) for call in transcripts}
+        self.assertGreaterEqual(len(lengths), 4)
+        self.assertTrue(any(
+            first["speaker"] == second["speaker"]
+            for call in transcripts
+            for first, second in zip(call["segments"], call["segments"][1:])
+        ))
+        calls = {call["call_id"]: call for call in transcripts}
+        ask_positions = {
+            next(index for index, segment in enumerate(calls[item["call_id"]]["segments"], 1)
+                 if segment["start_at_ms"] == item["first_ask_at_ms"])
+            for item in truth if item["label"] == "scam"
+        }
+        self.assertGreaterEqual(len(ask_positions), 3)
 
 
 if __name__ == "__main__":

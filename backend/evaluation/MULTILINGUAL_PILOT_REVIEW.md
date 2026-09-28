@@ -1,58 +1,60 @@
-# Multilingual development pilot — candidate review
+# Multilingual development pilot — review record
 
 ## Scope and lineage
 
-This is a **draft development pilot**, not a held-out set or a detector result.
-It contains one Hindi-English KYC scam/genuine pair and one Telugu-English
-courier scam/genuine pair. The calls descend from the existing development
-families `kyc-update-seed-01` and `courier-parcel-seed-01`; these are not
-independent new families. They must stay on the development side of the split.
-The public held-out candidate outlines and any sealed final test are excluded.
+Ten synthetic development calls cover scam/genuine digital-arrest and KYC pairs
+in both Hindi-English and Telugu-English, plus the Telugu-English courier pair.
+Each call uses an opaque ID. Evaluator-only lineage is in
+`data/multilingual_pilot_ground_truth.json`; the dialogues are in
+`data/multilingual_pilot_transcripts.json`. All five language/pair groups reuse
+existing **development** families. None is an independent held-out family.
+No held-out candidate dialogue was used to author these calls.
 
-The two JSON files have different uses:
+Raw transcript JSON is an evaluation fixture, not detector input. At replay
+step N, call `detector_view(transcript, N)` and pass only that projection. It
+contains language and the first N finalized segments' text and timing; it
+excludes IDs, speaker, lineage, labels, ask annotations and future turns.
+Ground truth must never be passed to a detector or Gemini.
 
-* `data/multilingual_pilot_transcripts.json`: detector input; finalized segments
-  only, with ordered **synthetic** timeline timestamps.
-* `data/multilingual_pilot_ground_truth.json`: evaluator-only family lineage,
-  labels, and first-dangerous-ask annotations. Never send it to the detector.
+No audio or detector run was performed. Segment-start times are **coarse
+scripted annotations**, not measured speech, STT, or alert times. No alert
+timestamp is present; obtain it only from an actual incremental detector run.
 
-No audio was recorded. The timestamps approximate scripted turn boundaries,
-not measured speaking or STT latency. There are no alert timestamps; obtain
-them only from incremental detector replay of the finalized segment stream.
+## First dangerous asks checked against the dialogue
 
-## Annotation choices to review
+The earlier authority claim, freeze/arrest/customs threat, secrecy and call
+isolation are suspicious tactics, but do not yet request money or a banking
+secret. The first dangerous request is the line below. Genuine calls have a
+null ask. The courier's order-specific handoff code is not a banking OTP.
 
-| Call | Proposed label | Proposed first ask | Rationale |
+| Opaque call ID | Development family | First ask | Request |
 | --- | --- | --- | --- |
-| `pilot-hi-en-kyc-scam-001` | scam | 27,600 ms, s7 | Caller first requests the banking OTP. The earlier freeze claim and urgency are tactics, not a dangerous action request. |
-| `pilot-hi-en-kyc-genuine-001` | genuine | null | Branch/app appointment; caller explicitly rejects sharing an OTP. |
-| `pilot-te-en-courier-scam-001` | scam | 28,900 ms, s7 | Caller first requests a ₹2,500 transfer to a supplied account. Earlier customs/police pressure is a tactic. |
-| `pilot-te-en-courier-genuine-001` | genuine | null | Order-specific delivery code is requested only after parcel handoff, not a banking credential or payment. |
+| `p-4c2e9a10` | digital-arrest-scam | s7, 31,020 ms | Transfer ₹18,000 to a claimed verification account. |
+| `p-0f6a52c8` | kyc-update-scam | s5, 21,280 ms | Read the banking OTP to the caller. |
+| `p-a91c407e` | digital-arrest-scam | s6, 27,870 ms | Transfer ₹12,000 to a claimed verification account. |
+| `p-5e3b10a7` | kyc-update-scam | s8, 32,190 ms | Read the banking OTP to the caller. |
+| `p-19f0c65b` | courier-parcel-scam | s7, 30,420 ms | Transfer a ₹2,500 release fee to a supplied account. |
 
-## Human review gate
+The Hindi digital-arrest listener starts opening a banking app and asks who
+owns the account. The Hindi KYC listener reads the SMS but questions whether
+to disclose it. Neither line contains a completed transfer or OTP disclosure.
 
-Navadeep206 approved both languages and the first-dangerous-ask annotations
-on 29 September 2026 in the task review, with no corrections requested.
-The review checklist was:
+## Naturalness and annotation review
 
-1. Does the wording sound like a plausible local phone call, including the
-   Hindi-English or Telugu-English switching? Correct unnatural expressions.
-2. Are the speaker turns, intent progression, label, and family lineage right?
-3. Does any segment **before** the annotated ask already request money, a
-   banking secret, identity transfer to an unverified destination, remote
-   access, or another dangerous action? If so, move the annotation.
-4. Does the genuine call contain a realistic benign look-alike without a
-   dangerous ask? In particular, distinguish an order handoff code from a bank
-   OTP and a protective OTP warning from a request to disclose it.
-5. After wording edits, check the synthetic segment durations remain plausible.
+Navadeep206, the author, approved an earlier four-call draft on 2026-09-29.
+That approval is **not independent fluent-speaker review** of this revised
+ten-call set. Independent Hindi-English and Telugu-English naturalness review
+is pending. The first-ask locations above were checked against the actual
+revised dialogue by the author; an independent reviewer should confirm them.
 
-| Language | Reviewer | Naturalness | Labels and first asks | Corrections / date |
+| Language | Independent reviewer | Naturalness | First asks and labels | Corrections |
 | --- | --- | --- | --- | --- |
-| Hindi-English | Navadeep206 | approved | approved | No corrections; 2026-09-29 |
-| Telugu-English | Navadeep206 | approved | approved | No corrections; 2026-09-29 |
+| Hindi-English | pending | pending | pending | pending |
+| Telugu-English | pending | pending | pending | pending |
 
-This approval covers these four development candidates only. Do not scale the
-set or treat its scores as final without further review. Run `python3
-backend/evaluation/validate_multilingual_pilot.py` after every correction,
-then run the evaluation unit tests. Structural validation cannot judge
-linguistic naturalness or semantic first-ask accuracy.
+Review each complete call, including code switching, hesitation, speaker turn
+patterns, genuine look-alikes, labels, and whether an earlier line already
+requests a dangerous action. Record the reviewer's name, date, specific
+corrections and accept/reject decisions here. Structural tests cannot make
+those decisions. Re-run the validator and unit tests after any edits. Do not
+describe this expanded pilot as independently reviewed until that happens.
