@@ -21,15 +21,21 @@ def signal(kind):
 
 
 class FakeProvider:
-    """Scripted provider. on_audio(provider, total_bytes) and on_flush(provider) may emit events."""
+    """Scripted provider. on_audio(provider, total_bytes) and on_flush(provider) may emit events.
+
+    Without callbacks it behaves like Sarvam: START_SPEECH on the first audio, and on flush the
+    open utterance's END_SPEECH and final result. `log` records audio and flush in arrival order.
+    """
 
     instances = []
 
-    def __init__(self, on_audio=None, on_flush=None, block_audio=False):
+    def __init__(self, on_audio=None, on_flush=None, block_audio=False, audio_delay=0.0):
         self.out = asyncio.Queue()
         self.audio = bytearray()
-        self.flushed = self.closed = False
-        self.on_audio, self.on_flush, self.block_audio = on_audio, on_flush, block_audio
+        self.log = []
+        self.flushed = self.closed = self.open_utterance = False
+        self.on_audio, self.on_flush = on_audio, on_flush
+        self.block_audio, self.audio_delay = block_audio, audio_delay
         FakeProvider.instances.append(self)
 
     def emit(self, *msgs):
@@ -39,14 +45,24 @@ class FakeProvider:
     async def send_audio(self, pcm):
         if self.block_audio:
             await asyncio.Event().wait()  # provider never accepts audio
+        if self.audio_delay:
+            await asyncio.sleep(self.audio_delay)
         self.audio.extend(pcm)
+        self.log.append(("audio", len(pcm)))
         if self.on_audio:
             self.on_audio(self, len(self.audio))
+        elif not self.open_utterance:
+            self.open_utterance = True
+            self.emit(signal("START_SPEECH"))
 
     async def flush(self):
         self.flushed = True
+        self.log.append(("flush",))
         if self.on_flush:
             self.on_flush(self)
+        elif self.open_utterance:
+            self.open_utterance = False
+            self.emit(signal("END_SPEECH"), data(f"flush-{len(self.log)}", "flushed utterance"))
 
     async def events(self):
         while (m := await self.out.get()) is not None:
@@ -69,7 +85,8 @@ def use_provider(monkeypatch, **kwargs):
 def default_provider(monkeypatch):
     FakeProvider.instances.clear()
     use_provider(monkeypatch)
-    monkeypatch.setattr(audio_ws, "FINALIZE_IDLE_S", 0.05)
+    monkeypatch.setattr(audio_ws, "FINALIZE_SETTLE_S", 0.05)
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 2.0)
 
 
 @pytest.fixture
@@ -123,9 +140,9 @@ def test_valid_frames_are_acknowledged_and_relayed(client):
         ready = open_session(ws)
         assert ready["max_frame_bytes"] == 32000 and ready["language_code"] == "te-IN"
         ws.send_bytes(b"\x01\x00" * 1600)
-        assert ws.receive_json() == {"type": "ack", "frames": 1, "samples": 1600, "duration_s": 0.1}
+        assert receive_until(ws, "ack")[0] == {"type": "ack", "frames": 1, "samples": 1600, "duration_s": 0.1}
         ws.send_bytes(b"\x02\x00" * 16000)
-        assert ws.receive_json() == {"type": "ack", "frames": 2, "samples": 17600, "duration_s": 1.1}
+        assert receive_until(ws, "ack")[0] == {"type": "ack", "frames": 2, "samples": 17600, "duration_s": 1.1}
         ws.send_json({"type": "stop"})
         stopped, _ = receive_until(ws, "stopped")
         assert stopped["samples"] == 17600 and stopped["transcription"] == "complete"
@@ -196,7 +213,7 @@ def test_session_audio_limit(client, monkeypatch):
     with client.websocket_connect("/ws/audio") as ws:
         open_session(ws)
         ws.send_bytes(b"\x00\x00" * 16000)
-        assert ws.receive_json()["samples"] == 16000
+        assert receive_until(ws, "ack")[0]["samples"] == 16000
         ws.send_bytes(b"\x00\x00")
         expect_error(ws, "session_limit", 1008)
 
@@ -220,7 +237,7 @@ def test_client_disconnect_mid_session_closes_provider(client):
     with client.websocket_connect("/ws/audio") as ws:
         open_session(ws)
         ws.send_bytes(b"\x00\x00" * 800)
-        assert ws.receive_json()["samples"] == 800
+        assert receive_until(ws, "ack")[0]["samples"] == 800
         assert audio_ws.active_sessions == 1
     wait_for_no_sessions()
     wait_until(lambda: FakeProvider.instances[0].closed, "provider not closed after client disconnect")
@@ -230,12 +247,12 @@ def test_second_session_starts_fresh(client):
     with client.websocket_connect("/ws/audio") as ws:
         open_session(ws)
         ws.send_bytes(b"\x00\x00" * 4000)
-        assert ws.receive_json()["samples"] == 4000
+        assert receive_until(ws, "ack")[0]["samples"] == 4000
     wait_for_no_sessions()
     with client.websocket_connect("/ws/audio") as ws:
         open_session(ws)
         ws.send_bytes(b"\x00\x00" * 160)
-        assert ws.receive_json() == {"type": "ack", "frames": 1, "samples": 160, "duration_s": 0.01}
+        assert receive_until(ws, "ack")[0] == {"type": "ack", "frames": 1, "samples": 160, "duration_s": 0.01}
     assert len(FakeProvider.instances) == 2 and FakeProvider.instances[0] is not FakeProvider.instances[1]
 
 
@@ -257,7 +274,7 @@ def test_speech_events_and_final_segments_are_forwarded_once(client):
             p.emit(signal("START_SPEECH"))
         if total == 6400:
             p.emit(signal("END_SPEECH"), data("seg-1", "నేను Inspector Sharma"), data("seg-1", "నేను Inspector Sharma"),
-                   data("seg-empty", "  "))
+                   signal("START_SPEECH"), signal("END_SPEECH"), data("seg-noise", "  "))  # noise: empty final
     with client.websocket_connect("/ws/audio") as ws:
         FakeProvider.instances.clear()
         open_session(ws)
@@ -270,8 +287,9 @@ def test_speech_events_and_final_segments_are_forwarded_once(client):
     transcripts = [e for e in events if e["type"] == "transcript"]
     assert transcripts == [{"type": "transcript", "final": True, "segment_id": "seg-1", "text": "నేను Inspector Sharma",
                             "language_code": "te-IN", "audio_duration_s": 1.0, "processing_latency_s": 0.3}]
-    assert [e["state"] for e in events if e["type"] == "speech"] == ["started", "ended"]
-    assert stopped["segments"] == 1 and stopped["transcription"] == "complete" and stopped["reason"] is None
+    assert [e["state"] for e in events if e["type"] == "speech"] == ["started", "ended", "started", "ended"]
+    assert stopped["segments"] == 1 and stopped["utterances"] == 2
+    assert stopped["transcription"] == "complete" and stopped["reason"] is None
 
 
 def test_stop_flushes_and_waits_for_the_final_transcript(client):
@@ -288,11 +306,12 @@ def test_stop_flushes_and_waits_for_the_final_transcript(client):
         stopped, events = receive_until(ws, "stopped")
     assert any(e.get("text") == "call లోనే ఉండండి" for e in events), "final transcript not delivered before stopped"
     assert stopped["transcription"] == "complete" and stopped["segments"] == 1
+    assert stopped["finals_before_flush"] == 0 and stopped["finals_after_flush"] == 1
     assert provider.flushed and provider.closed
 
 
 def test_stop_without_final_transcript_is_incomplete(client, monkeypatch):
-    monkeypatch.setattr(audio_ws, "FINALIZE_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.3)
     with client.websocket_connect("/ws/audio") as ws:
         open_session(ws)
         FakeProvider.instances[0].on_audio = lambda p, total: p.emit(signal("START_SPEECH"))
@@ -300,8 +319,8 @@ def test_stop_without_final_transcript_is_incomplete(client, monkeypatch):
         ws.send_json({"type": "stop"})
         stopped, _ = receive_until(ws, "stopped")
     assert stopped["transcription"] == "incomplete"
-    assert "no final transcript" in stopped["reason"]
-    assert FakeProvider.instances[0].closed
+    assert "1 utterance(s) had no final transcript" in stopped["reason"]
+    assert FakeProvider.instances[0].flushed and FakeProvider.instances[0].closed
 
 
 @pytest.mark.parametrize("failure", [
@@ -335,7 +354,7 @@ def test_provider_failure_during_stop_is_not_reported_as_stopped(client):
 
 def test_slow_provider_drops_audio_as_a_reported_gap(client, monkeypatch):
     monkeypatch.setattr(audio_ws, "MAX_QUEUED_SECONDS", 0.25)
-    monkeypatch.setattr(audio_ws, "FINALIZE_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.3)
     use_provider(monkeypatch, block_audio=True)
     with client.websocket_connect("/ws/audio") as ws:
         open_session(ws)
@@ -346,8 +365,11 @@ def test_slow_provider_drops_audio_as_a_reported_gap(client, monkeypatch):
         stopped, events = receive_until(ws, "stopped")
         gaps = [e for e in events if e["type"] == "gap"]
     assert gaps and all(g["source"] == "server" for g in gaps)
-    assert gaps[-1]["total_dropped_s"] == pytest.approx(0.2)  # first frame is in flight, two queued, two dropped
-    assert stopped["transcription"] == "incomplete" and stopped["dropped_s"] == pytest.approx(0.2)
+    # Frames count against the cap until the provider accepts them: two fit (one in flight), three are dropped.
+    assert gaps[-1]["total_dropped_s"] == pytest.approx(0.3)
+    assert stopped["transcription"] == "incomplete" and stopped["dropped_s"] == pytest.approx(0.3)
+    assert "dropped" in stopped["reason"] and "had not reached" in stopped["reason"]
+    assert not FakeProvider.instances[0].flushed, "flushed before queued audio was delivered"
 
 
 def test_provider_event_translation():
@@ -356,3 +378,99 @@ def test_provider_event_translation():
     assert audio_ws.provider_event({"type": "unknown"}) is None
     with pytest.raises(ProviderError, match="quota: Rate limited"):
         audio_ws.provider_event({"type": "error", "data": {"error": "Rate limited", "code": "quota"}})
+
+
+# --- Stop finalization (utterance accounting) ---
+
+def stop_and_collect(ws, frames=1, frame_samples=1600):
+    for _ in range(frames):
+        ws.send_bytes(b"\x00\x00" * frame_samples)
+    ws.send_json({"type": "stop"})
+    return receive_until(ws, "stopped")
+
+
+def test_delayed_earlier_transcript_is_not_taken_as_the_final_result(client):
+    """Two utterances; only the first one's (late) result arrives after the flush."""
+    def speak(p, total):
+        if total == 3200:
+            p.emit(signal("START_SPEECH"))
+        elif total == 6400:
+            p.emit(signal("END_SPEECH"))  # utterance 1 ended; its result is still being processed
+        elif total == 9600:
+            p.emit(signal("START_SPEECH"))  # utterance 2 is open when Stop arrives
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = speak
+        provider.on_flush = lambda p: p.emit(data("utt-1", "earlier utterance, delivered late"))
+        stopped, events = stop_and_collect(ws, frames=3)
+    assert any(e.get("text") == "earlier utterance, delivered late" for e in events)
+    assert stopped["utterances"] == 2 and stopped["finals_after_flush"] == 1
+    assert stopped["transcription"] == "incomplete"
+    assert "1 utterance(s) had no final transcript" in stopped["reason"]
+
+
+def test_missing_final_after_end_of_speech_is_incomplete(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.3)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = lambda p, total: p.emit(signal("START_SPEECH"), signal("END_SPEECH"))
+        provider.on_flush = lambda p: None
+        stopped, _ = stop_and_collect(ws)
+    assert stopped["transcription"] == "incomplete" and "no final transcript" in stopped["reason"]
+
+
+def test_final_without_speech_signals_is_incomplete(client):
+    """VAD events missing: a result arrives with no START_SPEECH, so completeness cannot be confirmed."""
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = lambda p, total: None
+        provider.on_flush = lambda p: p.emit(data("x-1", "transcript with no VAD events"))
+        stopped, events = stop_and_collect(ws)
+    assert any(e.get("text") == "transcript with no VAD events" for e in events), "result still forwarded"
+    assert stopped["transcription"] == "incomplete" and "speech-detection signals" in stopped["reason"]
+
+
+def test_no_provider_events_at_all_is_incomplete(client):
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = lambda p, total: None
+        provider.on_flush = lambda p: None
+        stopped, _ = stop_and_collect(ws)
+    assert stopped["transcription"] == "incomplete" and "no speech was detected" in stopped["reason"]
+
+
+def test_slow_queue_drain_delivers_all_audio_before_flush_then_finalizes(client, monkeypatch):
+    use_provider(monkeypatch, audio_delay=0.03)
+
+    def speak(p, total):
+        if total == 3200:
+            p.emit(signal("START_SPEECH"))
+        elif total == 6400:  # result for utterance 1 arrives while the queue is still draining after Stop
+            p.emit(signal("END_SPEECH"), data("utt-1", "before the flush"))
+        elif total == 9600:
+            p.emit(signal("START_SPEECH"))
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = speak
+        provider.on_flush = lambda p: p.emit(signal("END_SPEECH"), data("utt-2", "after the flush"))
+        stopped, events = stop_and_collect(ws, frames=10)
+    assert provider.log == [("audio", 3200)] * 10 + [("flush",)], "flush was not sent after all queued audio"
+    assert bytes(provider.audio) == b"\x00\x00" * 16000
+    assert stopped["finals_before_flush"] == 1 and stopped["finals_after_flush"] == 1
+    assert stopped["transcription"] == "complete", stopped["reason"]
+
+
+def test_queue_that_cannot_drain_by_the_deadline_is_incomplete_and_never_flushed(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.3)
+    use_provider(monkeypatch, audio_delay=0.2)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        stopped, _ = stop_and_collect(ws, frames=6)
+    assert stopped["transcription"] == "incomplete" and "had not reached" in stopped["reason"]
+    assert not FakeProvider.instances[0].flushed
+    wait_until(lambda: FakeProvider.instances[0].closed, "provider not closed")

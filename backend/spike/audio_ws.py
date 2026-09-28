@@ -9,8 +9,12 @@ Protocol on /ws/audio:
      dropped and the client gets {"type": "gap", ...}.
   4. Provider results arrive as {"type": "speech", "state"} and {"type": "transcript", "final", "segment_id",
      "text", ...}; each final segment is forwarded once.
-  5. Client sends {"type": "stop"}; server flushes the provider, waits for the final transcript, closes the
-     provider and replies {"type": "stopped", ..., "transcription": "complete" | "incomplete", "reason"}.
+  5. Client sends {"type": "stop"}; server delivers all queued audio, then flushes the provider, waits for
+     every started utterance's final transcript, closes the provider and replies
+     {"type": "stopped", ..., "transcription": "complete" | "incomplete", "reason"}.
+Sarvam (probed 2026-09-29) sends START_SPEECH, END_SPEECH and one final transcript per utterance, and sends
+nothing in reply to a flush when no utterance is open. Completion is therefore judged by utterance
+accounting: every START_SPEECH must have a final result, after the flush was actually sent.
 Any violation or provider failure gets {"type": "error", "code", "message"} and the socket is closed.
 Audio is held only in the bounded relay queue; nothing is stored.
 """
@@ -32,8 +36,8 @@ MAX_SESSION_SECONDS = 15 * 60
 MAX_SESSIONS = 4
 START_TIMEOUT_S = 10.0
 MAX_QUEUED_SECONDS = 5.0  # audio waiting to reach the provider; beyond this, frames are dropped
-FINALIZE_TIMEOUT_S = 5.0  # after flush, wait this long for the final transcript of pending speech
-FINALIZE_IDLE_S = 1.5  # after flush with no speech pending, wait this long for a late transcript
+FINALIZE_DEADLINE_S = 6.0  # whole Stop budget on the server: drain, flush, final results. Browser waits 8 s.
+FINALIZE_SETTLE_S = 1.0  # after the flush, the provider must be quiet this long with nothing open
 connect_provider = default_connector()
 
 app = FastAPI()
@@ -95,9 +99,13 @@ class _Relay:
         self.ws, self.provider = ws, provider
         self.queue = asyncio.Queue()  # bounded by queued_samples, not item count
         self.queued_samples = self.dropped_samples = self.segments = 0
-        self.seen = set()
-        self.speech_pending = self.flushed = self.closing = False
-        self.final_after_flush = asyncio.Event()
+        self.seen = set()  # forwarded (non-empty) final segment IDs
+        self.final_ids = set()  # every distinct final result, including empty ones
+        self.utterances_started = 0  # START_SPEECH count; each needs one final result
+        self.finals_before_flush = self.finals_after_flush = 0
+        self.flush_sent_at = None  # loop time when the flush actually went to the provider
+        self.last_event_at = asyncio.get_running_loop().time()
+        self.closing = False
         self.failed = asyncio.Event()
         self.failure = None
         self.lock = asyncio.Lock()
@@ -107,6 +115,30 @@ class _Relay:
             if self.failure and msg.get("code") != "provider_error":
                 return  # socket already closed after a provider failure
             await self.ws.send_json(msg)
+
+    def incomplete_reasons(self) -> list[str]:
+        """Why transcription cannot be called complete right now; empty means complete."""
+        reasons = []
+        if self.flush_sent_at is None:
+            reasons.append(f"{self.queued_samples / SAMPLE_RATE:.2f} s of accepted audio had not reached the "
+                           "transcription provider")
+        if self.dropped_samples:
+            reasons.append(f"{self.dropped_samples / SAMPLE_RATE:.2f} s of audio was dropped before transcription")
+        finals = len(self.final_ids)
+        if self.utterances_started > finals:
+            reasons.append(f"{self.utterances_started - finals} utterance(s) had no final transcript")
+        elif finals > self.utterances_started:
+            reasons.append("speech-detection signals were missing or inconsistent, so it cannot be confirmed "
+                           "that every utterance was transcribed")
+        elif finals == 0:
+            reasons.append("no speech was detected, so transcription cannot be confirmed")
+        return reasons
+
+    def settled(self, now: float) -> bool:
+        """Flush sent, nothing open, and the provider quiet for the settle period since the later of both."""
+        if self.flush_sent_at is None or self.utterances_started > len(self.final_ids):
+            return False
+        return now - max(self.flush_sent_at, self.last_event_at) >= FINALIZE_SETTLE_S
 
     def enqueue(self, frame: bytes) -> bool:
         n = len(frame) // BYTES_PER_SAMPLE
@@ -118,27 +150,34 @@ class _Relay:
         return True
 
     async def pump(self) -> None:
+        # FIFO: every frame accepted before Stop reaches the provider before the flush does.
         while (item := await self.queue.get()) is not _FLUSH:
-            self.queued_samples -= len(item) // BYTES_PER_SAMPLE
             await self.provider.send_audio(item)
+            self.queued_samples -= len(item) // BYTES_PER_SAMPLE
         await self.provider.flush()
+        self.flush_sent_at = asyncio.get_running_loop().time()
 
     async def read(self) -> None:
         async for msg in self.provider.events():
+            self.last_event_at = asyncio.get_running_loop().time()
             event = provider_event(msg)
             if event is None:
                 continue
             if event["type"] == "speech":
                 if event["state"] == "started":
-                    self.speech_pending = True
+                    self.utterances_started += 1
                 await self.send(event)
                 continue
             if event["final"]:
-                self.speech_pending = False
-                if self.flushed:
-                    self.final_after_flush.set()
-                if not event["text"] or event["segment_id"] in self.seen:
-                    continue  # silence, or a segment already forwarded
+                if event["segment_id"] in self.final_ids:
+                    continue  # duplicate delivery of a result already counted
+                self.final_ids.add(event["segment_id"])
+                if self.flush_sent_at is None:
+                    self.finals_before_flush += 1
+                else:
+                    self.finals_after_flush += 1
+                if not event["text"]:
+                    continue  # utterance was not speech; counted, not shown
                 self.seen.add(event["segment_id"])
                 self.segments += 1
             await self.send(event)
@@ -163,13 +202,6 @@ class _Relay:
             await self.ws.close(code=1011)
         except Exception:
             pass  # browser already gone
-
-
-async def _wait_any(events, timeout: float) -> None:
-    waiters = [asyncio.create_task(e.wait()) for e in events]
-    await asyncio.wait(waiters, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-    for w in waiters:
-        w.cancel()
 
 
 async def _session(ws: WebSocket) -> None:
@@ -203,7 +235,7 @@ async def _session(ws: WebSocket) -> None:
     try:
         await relay.send({"type": "ready", **EXPECTED_FORMAT, "language_code": language,
                           "max_frame_bytes": MAX_FRAME_BYTES, "max_session_seconds": MAX_SESSION_SECONDS})
-        await _receive_audio(ws, relay, tasks[0])
+        await _receive_audio(ws, relay)
     finally:
         relay.closing = True
         for t in tasks:
@@ -213,7 +245,7 @@ async def _session(ws: WebSocket) -> None:
         await asyncio.shield(asyncio.gather(closing, *tasks, return_exceptions=True))
 
 
-async def _receive_audio(ws: WebSocket, relay: _Relay, pump_task: asyncio.Task) -> None:
+async def _receive_audio(ws: WebSocket, relay: _Relay) -> None:
     frames = samples = 0
     while True:
         msg = await ws.receive()
@@ -223,7 +255,7 @@ async def _receive_audio(ws: WebSocket, relay: _Relay, pump_task: asyncio.Task) 
         if data is None:
             body = _json(msg.get("text"))
             if body and body.get("type") == "stop":
-                await _finish(ws, relay, pump_task, frames, samples)
+                await _finish(ws, relay, frames, samples)
                 return
             await _fail(ws, "unexpected_text", "After start, send binary audio or a stop message.", 1003)
             return
@@ -248,29 +280,23 @@ async def _receive_audio(ws: WebSocket, relay: _Relay, pump_task: asyncio.Task) 
         await relay.send({"type": "ack", "frames": frames, "samples": samples, "duration_s": samples / SAMPLE_RATE})
 
 
-async def _finish(ws: WebSocket, relay: _Relay, pump_task: asyncio.Task, frames: int, samples: int) -> None:
-    relay.flushed = True
-    relay.queue.put_nowait(_FLUSH)
-    await asyncio.wait([pump_task], timeout=FINALIZE_TIMEOUT_S)
-    reason = None
+async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + FINALIZE_DEADLINE_S
+    relay.queue.put_nowait(_FLUSH)  # queued after every accepted frame
+    while not relay.failure and not relay.settled(loop.time()) and loop.time() < deadline:
+        await asyncio.sleep(0.05)
     if relay.failure:
         return  # provider_failed already reported the error and closed the socket
-    if not pump_task.done():
-        reason = "audio could not be delivered to the transcription provider in time"
-    else:
-        pending = relay.speech_pending
-        await _wait_any([relay.final_after_flush, relay.failed], FINALIZE_TIMEOUT_S if pending else FINALIZE_IDLE_S)
-        if relay.failure:
-            return
-        if pending and not relay.final_after_flush.is_set():
-            reason = f"no final transcript within {FINALIZE_TIMEOUT_S:g} s of stopping"
-    if relay.dropped_samples and not reason:
-        reason = f"{relay.dropped_samples / SAMPLE_RATE:.2f} s of audio was dropped before transcription"
+    reasons = relay.incomplete_reasons()
     relay.closing = True
     await relay.provider.close()
     await relay.send({"type": "stopped", "frames": frames, "samples": samples, "duration_s": samples / SAMPLE_RATE,
-                      "segments": relay.segments, "dropped_s": relay.dropped_samples / SAMPLE_RATE,
-                      "transcription": "incomplete" if reason else "complete", "reason": reason})
+                      "segments": relay.segments, "utterances": relay.utterances_started,
+                      "finals_before_flush": relay.finals_before_flush, "finals_after_flush": relay.finals_after_flush,
+                      "dropped_s": relay.dropped_samples / SAMPLE_RATE,
+                      "transcription": "incomplete" if reasons else "complete",
+                      "reason": "; ".join(reasons) or None})
     await ws.close(code=1000)
 
 

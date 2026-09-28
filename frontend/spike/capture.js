@@ -2,7 +2,7 @@ import { Resampler, toInt16 } from "./resample.js";
 import { PcmSender } from "./pcm-sender.js";
 
 const READY_TIMEOUT_MS = 12000; // includes the server opening the transcription session
-const STOP_TIMEOUT_MS = 8000; // the server waits up to 5 s for the final transcript
+const STOP_TIMEOUT_MS = 8000; // server finalization deadline is 6 s (FINALIZE_DEADLINE_S), plus margin
 const $ = (id) => document.getElementById(id);
 let session = null;
 
