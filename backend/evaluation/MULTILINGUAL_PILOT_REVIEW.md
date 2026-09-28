@@ -46,11 +46,14 @@ That approval is **not independent fluent-speaker review** of this revised
 ten-call set. Independent Hindi-English and Telugu-English naturalness review
 is pending. The first-ask locations above were checked against the actual
 revised dialogue by the author; an independent reviewer should confirm them.
+On 2026-09-29, Navadeep206 confirmed that no independent fluent reviewer is
+currently available for either language. No independent accept/reject decision
+or corrections can be recorded yet. This blocks completion of content review.
 
-| Language | Independent reviewer | Naturalness | First asks and labels | Corrections |
+| Language | Independent reviewer | Naturalness | First asks and labels | Corrections / decision |
 | --- | --- | --- | --- | --- |
-| Hindi-English | pending | pending | pending | pending |
-| Telugu-English | pending | pending | pending | pending |
+| Hindi-English | unavailable (2026-09-29) | pending | pending | none reviewed; decision pending |
+| Telugu-English | unavailable (2026-09-29) | pending | pending | none reviewed; decision pending |
 
 Review each complete call, including code switching, hesitation, speaker turn
 patterns, genuine look-alikes, labels, and whether an earlier line already
