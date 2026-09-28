@@ -1,6 +1,8 @@
 """Tests for the scenario-family structure and pair counts."""
 
 from copy import deepcopy
+import json
+from pathlib import Path
 import unittest
 
 from backend.evaluation.validate_families import validate_families
@@ -35,6 +37,12 @@ def valid_families():
 
 
 class ValidateFamiliesTests(unittest.TestCase):
+    def test_repository_file(self):
+        path = Path(__file__).parent / "data" / "families.json"
+        families = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(len(families), 12)
+        self.assertIsNone(validate_families(families))
+
     def test_valid_twelve_family_structure(self):
         families = valid_families()
         original = deepcopy(families)

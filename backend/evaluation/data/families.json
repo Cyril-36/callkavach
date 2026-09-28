@@ -1,0 +1,290 @@
+[
+  {
+    "family_id": "digital-arrest-scam",
+    "label": "scam",
+    "scenario_type": "digital-arrest",
+    "steps": [
+      {
+        "caller_intent": "Claim official authority without providing verifiable contact details.",
+        "example_line": "I am from the cyber cell, and a complaint has been opened in your name."
+      },
+      {
+        "caller_intent": "Invent a criminal allegation to create fear.",
+        "example_line": "Your identity was linked to an illegal transfer, so you are under investigation."
+      },
+      {
+        "caller_intent": "Isolate the listener before making a demand.",
+        "example_line": "Do not tell your family or end this call until we clear your name."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for money.",
+        "example_line": "Transfer your savings to our verification account now to avoid arrest."
+      }
+    ],
+    "first_dangerous_ask_step": 3
+  },
+  {
+    "family_id": "digital-arrest-genuine",
+    "label": "genuine",
+    "scenario_type": "digital-arrest",
+    "steps": [
+      {
+        "caller_intent": "Return a user's inquiry about a suspected fake arrest call.",
+        "example_line": "This is the public help desk returning your message about a threatening call."
+      },
+      {
+        "caller_intent": "Acknowledge the same allegation without endorsing it.",
+        "example_line": "You said the caller claimed your identity was tied to a criminal case."
+      },
+      {
+        "caller_intent": "Encourage independent verification and family support.",
+        "example_line": "You can end any such call and contact the official office or someone you trust."
+      },
+      {
+        "caller_intent": "Explain that no money or secret is requested on this call.",
+        "example_line": "We will not ask you to move money or share a banking code over the phone."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "courier-parcel-scam",
+    "label": "scam",
+    "scenario_type": "courier-parcel",
+    "steps": [
+      {
+        "caller_intent": "Claim a parcel is linked to the listener.",
+        "example_line": "A parcel booked with your phone number has been held at our depot."
+      },
+      {
+        "caller_intent": "Add a serious but unverified customs allegation.",
+        "example_line": "The parcel was flagged by customs for a prohibited item."
+      },
+      {
+        "caller_intent": "Apply urgency and discourage independent checking.",
+        "example_line": "The case will be sent to police today if you disconnect and delay."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for a release fee.",
+        "example_line": "Pay the release fee to the account I give you now to stop the case."
+      }
+    ],
+    "first_dangerous_ask_step": 3
+  },
+  {
+    "family_id": "courier-parcel-genuine",
+    "label": "genuine",
+    "scenario_type": "courier-parcel",
+    "steps": [
+      {
+        "caller_intent": "Announce an expected delivery and invite a check in the order app.",
+        "example_line": "I am nearby with your parcel; you can confirm it in your shopping app."
+      },
+      {
+        "caller_intent": "Arrange an ordinary doorstep handoff without pressure.",
+        "example_line": "I can meet you at the building entrance when you are ready."
+      },
+      {
+        "caller_intent": "Request only the order-specific delivery code at handoff, not a banking OTP.",
+        "example_line": "At the door, please share the delivery code shown for this order so I can mark it delivered."
+      },
+      {
+        "caller_intent": "Clarify why this code exchange is benign.",
+        "example_line": "I do not need a bank OTP, card PIN, remote access, or any payment from you."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "kyc-update-scam",
+    "label": "scam",
+    "scenario_type": "kyc-update",
+    "steps": [
+      {
+        "caller_intent": "Pose as a bank representative handling account verification.",
+        "example_line": "I am calling from your bank's verification team about your KYC status."
+      },
+      {
+        "caller_intent": "Threaten an immediate account freeze.",
+        "example_line": "Your account will be frozen today unless this update is completed."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for a banking OTP.",
+        "example_line": "Read the banking OTP you just received so I can finish the KYC update."
+      },
+      {
+        "caller_intent": "Repeat the pressure if the listener hesitates.",
+        "example_line": "If you wait to visit a branch, your account may be blocked first."
+      }
+    ],
+    "first_dangerous_ask_step": 2
+  },
+  {
+    "family_id": "kyc-update-genuine",
+    "label": "genuine",
+    "scenario_type": "kyc-update",
+    "steps": [
+      {
+        "caller_intent": "Give a routine notice that a profile review may be due.",
+        "example_line": "Your bank profile may need a KYC review this month."
+      },
+      {
+        "caller_intent": "Direct the listener to a channel they can open independently.",
+        "example_line": "Please check the notice in your bank app or ask at your branch."
+      },
+      {
+        "caller_intent": "Reject sharing banking secrets on the call.",
+        "example_line": "Do not tell anyone your OTP or PIN, including me."
+      },
+      {
+        "caller_intent": "Close without requiring immediate action on the phone.",
+        "example_line": "You can verify the deadline through the bank's published support number."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "bank-card-block-scam",
+    "label": "scam",
+    "scenario_type": "bank-card-block",
+    "steps": [
+      {
+        "caller_intent": "Claim to be from card security.",
+        "example_line": "This is the card security desk calling about your blocked card."
+      },
+      {
+        "caller_intent": "Create concern about a suspicious transaction.",
+        "example_line": "A large transaction was attempted, and we can release the block right now."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for card secrets.",
+        "example_line": "Tell me your card PIN and the banking OTP so I can unblock it."
+      },
+      {
+        "caller_intent": "Discourage use of the official number.",
+        "example_line": "Calling the number on the card will take too long to stop this transaction."
+      }
+    ],
+    "first_dangerous_ask_step": 2
+  },
+  {
+    "family_id": "bank-card-block-genuine",
+    "label": "genuine",
+    "scenario_type": "bank-card-block",
+    "steps": [
+      {
+        "caller_intent": "Notify the cardholder of a declined transaction.",
+        "example_line": "A card transaction was declined, and you may want to review it."
+      },
+      {
+        "caller_intent": "Point to a self-service card control.",
+        "example_line": "You can check or freeze the card yourself in your bank app."
+      },
+      {
+        "caller_intent": "Offer an independently verifiable support route.",
+        "example_line": "If you need help, call the number printed on the back of your card."
+      },
+      {
+        "caller_intent": "State that this call needs no credentials.",
+        "example_line": "Please do not share your PIN, OTP, or full card number with me."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "trai-sim-disconnection-scam",
+    "label": "scam",
+    "scenario_type": "trai-sim-disconnection",
+    "steps": [
+      {
+        "caller_intent": "Claim telecom regulatory authority.",
+        "example_line": "I am calling from the telecom regulator about your mobile number."
+      },
+      {
+        "caller_intent": "Threaten imminent SIM disconnection based on an allegation.",
+        "example_line": "Your SIM will be disconnected within an hour because of a complaint."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for remote access.",
+        "example_line": "Install the support app I name and give me remote access to keep your SIM active."
+      },
+      {
+        "caller_intent": "Pressure the listener to remain on the call.",
+        "example_line": "Do not contact your mobile provider until I finish this verification."
+      }
+    ],
+    "first_dangerous_ask_step": 2
+  },
+  {
+    "family_id": "trai-sim-disconnection-genuine",
+    "label": "genuine",
+    "scenario_type": "trai-sim-disconnection",
+    "steps": [
+      {
+        "caller_intent": "Give a routine carrier notice about a service update.",
+        "example_line": "This is a reminder to check your mobile plan's service notice."
+      },
+      {
+        "caller_intent": "Avoid claiming that a regulator ordered immediate disconnection.",
+        "example_line": "You can see the actual status in your provider's app or at its store."
+      },
+      {
+        "caller_intent": "Allow the listener to verify on their own schedule.",
+        "example_line": "If the notice does not appear there, please ignore this call."
+      },
+      {
+        "caller_intent": "Reject remote access and secret collection.",
+        "example_line": "We will not ask you to install a remote-control app or share a banking code."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  },
+  {
+    "family_id": "electricity-bill-scam",
+    "label": "scam",
+    "scenario_type": "electricity-bill",
+    "steps": [
+      {
+        "caller_intent": "Claim an overdue utility bill.",
+        "example_line": "Your electricity bill is overdue, according to our records."
+      },
+      {
+        "caller_intent": "Threaten near-term disconnection.",
+        "example_line": "A technician is scheduled to disconnect your power in one hour."
+      },
+      {
+        "caller_intent": "Make the first dangerous request for an off-channel transfer.",
+        "example_line": "Send the bill amount to the personal UPI account I give you right now."
+      },
+      {
+        "caller_intent": "Discourage checking an official bill.",
+        "example_line": "The customer portal will update too late to stop the technician."
+      }
+    ],
+    "first_dangerous_ask_step": 2
+  },
+  {
+    "family_id": "electricity-bill-genuine",
+    "label": "genuine",
+    "scenario_type": "electricity-bill",
+    "steps": [
+      {
+        "caller_intent": "Provide a routine reminder without an immediate threat.",
+        "example_line": "This is a reminder that your latest electricity statement is available."
+      },
+      {
+        "caller_intent": "Direct the customer to the official account record.",
+        "example_line": "Please check the amount and due date in your utility account or on the printed bill."
+      },
+      {
+        "caller_intent": "Explain that disconnection notices can be verified independently.",
+        "example_line": "Any service notice will also appear through the utility's published channels."
+      },
+      {
+        "caller_intent": "Avoid taking payment or banking details on the call.",
+        "example_line": "I cannot take a transfer, card number, or OTP during this call."
+      }
+    ],
+    "first_dangerous_ask_step": null
+  }
+]
