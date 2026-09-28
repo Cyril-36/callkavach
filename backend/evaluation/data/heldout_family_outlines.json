@@ -168,8 +168,8 @@
         "example_line": "The physical card is blocked, but its saved online payments remain active until we finish the second check."
       },
       {
-        "caller_intent": "Make the first dangerous request for approval of a caller-initiated transaction under the guise of closing the online-payment gap.",
-        "example_line": "Approve the card-verification request that just appeared in your bank app so I can shut off online payments."
+        "caller_intent": "Make the first dangerous request to authorize a UPI collect payment disguised as card-security verification.",
+        "example_line": "Approve the 1,999-rupee UPI collect payment I just sent; it is the card-security verification needed to shut off online payments."
       },
       {
         "caller_intent": "Add loss pressure to discourage calling published support.",
