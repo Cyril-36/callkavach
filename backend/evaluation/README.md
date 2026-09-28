@@ -85,3 +85,38 @@ one. Chaitanya must review all 12 outlines. These are synthetic seeds, not full
 transcripts, a frozen test set, or measured detector results. Do not generate
 the planned held-out transcripts from them until the owner freezes the family
 split.
+
+## English development call timelines
+
+`data/dev_transcripts.json` contains one complete, synthetic English dialogue
+for each of the 12 existing families. Each call has a stable `call_id`, an `en`
+language label, and ordered finalized caller/listener segments with start and
+end times in milliseconds. `data/dev_ground_truth.json` holds the matching
+`call_id`, `family_id`, `label`, and `first_ask_at_ms` **separately**. Join these
+files by `call_id` only for evaluation; feed only transcript segments (and the
+chosen language) to a detector. Never pass the ground-truth file, family ID,
+label, or first-ask time into detection.
+
+Run the local validator from the repository root:
+
+```bash
+python3 backend/evaluation/validate_dev_set.py
+python3 -m unittest discover -s backend/evaluation -p 'test_*.py'
+```
+
+For scam calls, `first_ask_at_ms` marks the **start** of the caller segment
+containing the first explicit request for money, banking credentials, OTP/PIN,
+or remote access. It is `null` for genuine calls. The KYC genuine call says
+“Never share your OTP,” and the courier genuine call exchanges an order-specific
+delivery code; both are intentional benign counterexamples. The validator
+checks structure, ID alignment, timestamp order, finalized segments, family
+labels, and that a scam ask starts a caller segment. It cannot prove the words
+are natural or that the marked segment is semantically the first dangerous ask;
+those 12 calls need human review.
+
+These are authored text timelines with **synthetic timing**, not audio latency
+measurements or a held-out test. Neither file contains alert timestamps. Only
+an actual detector run may produce `red_alert_at_ms`; join that emitted time
+with ground truth by `call_id` before calling `summarize_calls`. Do not fill in
+an alert time from the script or assume that a detector warned because a scam
+label is present.

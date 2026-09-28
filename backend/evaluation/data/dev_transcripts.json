@@ -46,8 +46,8 @@
       {"segment_id": "s2", "start_at_ms": 7000, "end_at_ms": 9000, "speaker": "listener", "text": "Yes, I see the order there.", "final": true},
       {"segment_id": "s3", "start_at_ms": 9500, "end_at_ms": 16500, "speaker": "caller", "text": "I can meet you at the building entrance when you are ready.", "final": true},
       {"segment_id": "s4", "start_at_ms": 17000, "end_at_ms": 24000, "speaker": "caller", "text": "At the door, please share the delivery code shown for this order.", "final": true},
-      {"segment_id": "s5", "start_at_ms": 24500, "end_at_ms": 27500, "speaker": "listener", "text": "I am at the door. My order app shows delivery code 4821.", "final": true},
-      {"segment_id": "s6", "start_at_ms": 28000, "end_at_ms": 36000, "speaker": "caller", "text": "Thanks, marked delivered. I do not need a bank OTP, card PIN, or payment.", "final": true},
+      {"segment_id": "s5", "start_at_ms": 24500, "end_at_ms": 27500, "speaker": "listener", "text": "My order app shows delivery code 4821. You do not mean a bank OTP, right?", "final": true},
+      {"segment_id": "s6", "start_at_ms": 28000, "end_at_ms": 36000, "speaker": "caller", "text": "Correct, only that order code. Your parcel is marked delivered; no payment is due.", "final": true},
       {"segment_id": "s7", "start_at_ms": 36500, "end_at_ms": 41000, "speaker": "listener", "text": "I have the parcel. Thank you.", "final": true}
     ]
   },
@@ -110,7 +110,7 @@
       {"segment_id": "s1", "start_at_ms": 0, "end_at_ms": 7000, "speaker": "caller", "text": "I am calling from the telecom regulator about your mobile number.", "final": true},
       {"segment_id": "s2", "start_at_ms": 7500, "end_at_ms": 11000, "speaker": "listener", "text": "What is wrong with my number?", "final": true},
       {"segment_id": "s3", "start_at_ms": 11500, "end_at_ms": 18000, "speaker": "caller", "text": "Your SIM will be disconnected within an hour because of a complaint.", "final": true},
-      {"segment_id": "s4", "start_at_ms": 18500, "end_at_ms": 28000, "speaker": "caller", "text": "Install the support app I name and give me remote access to keep it active.", "final": true},
+      {"segment_id": "s4", "start_at_ms": 18500, "end_at_ms": 28000, "speaker": "caller", "text": "Install the support app I name and give me remote access to keep your SIM active.", "final": true},
       {"segment_id": "s5", "start_at_ms": 28500, "end_at_ms": 32000, "speaker": "listener", "text": "I do not want anyone controlling my phone.", "final": true},
       {"segment_id": "s6", "start_at_ms": 32500, "end_at_ms": 41000, "speaker": "caller", "text": "Do not contact your mobile provider until I finish this verification.", "final": true},
       {"segment_id": "s7", "start_at_ms": 41500, "end_at_ms": 46500, "speaker": "listener", "text": "I will call my provider directly.", "final": true}
