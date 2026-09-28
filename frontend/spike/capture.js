@@ -145,7 +145,9 @@ async function start() {
       } else if (msg?.type === "gap") noteGap(s, msg.samples, "server");
       else if (msg?.type === "stopped") {
         show({ server: serverTotals(msg) });
-        s.onStopped?.(msg.transcription === "complete" ? { ok: true } : { ok: false, why: `transcription incomplete: ${msg.reason}` });
+        s.onStopped?.(msg.transcription === "complete"
+          ? { ok: true, cleanup: msg.provider_cleanup }
+          : { ok: false, why: `transcription incomplete: ${msg.reason}`, cleanup: msg.provider_cleanup });
       } else if (msg?.type === "error") socketFailed(`server error: ${msg.message}`);
     };
     s.ws.onclose = (e) => {
@@ -218,7 +220,7 @@ async function stop() {
   });
   if (socketOpen) s.ws.send(JSON.stringify({ type: "stop" }));
   const clean = await release(s, { keepSocket: true }); // the microphone is released before waiting on the server
-  let { ok, why } = await outcome;
+  let { ok, why, cleanup } = await outcome;
   if (ok && s.sender.droppedSamples) {
     ok = false;
     why = `${(s.sender.droppedSamples / 16000).toFixed(2)} s of audio was not sent`;
@@ -226,9 +228,13 @@ async function stop() {
   show({ provisional: "" });
   s.done = true;
   closeSocket(s);
+  const notes = [];
+  if (!clean) notes.push("audio context did not close cleanly");
+  if (cleanup === "timeout") notes.push("transcription provider did not close in time");
+  if (cleanup === "error") notes.push("transcription provider closed with an error");
   const status = ok
-    ? (clean ? "Stopped" : "Stopped (audio context did not close cleanly)")
-    : `Stopped, session incomplete: ${why}.${clean ? "" : " Audio context did not close cleanly."}`;
+    ? (notes.length ? `Stopped (${notes.join("; ")})` : "Stopped")
+    : `Stopped, session incomplete: ${why}.${notes.length ? ` Also: ${notes.join("; ")}.` : ""}`;
   show({ status, sent: `${s.sender.sentSamples} sent, ${s.sender.droppedSamples} dropped` });
   $("start").disabled = false;
 }

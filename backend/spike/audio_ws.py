@@ -38,6 +38,7 @@ START_TIMEOUT_S = 10.0
 MAX_QUEUED_SECONDS = 5.0  # audio waiting to reach the provider; beyond this, frames are dropped
 FINALIZE_DEADLINE_S = 6.0  # whole Stop budget on the server: drain, flush, final results. Browser waits 8 s.
 FINALIZE_SETTLE_S = 1.0  # after the flush, the provider must be quiet this long with nothing open
+PROVIDER_CLOSE_TIMEOUT_S = 1.0  # bounded provider shutdown: 6 s + 1 s stays inside the browser's 8 s
 connect_provider = default_connector()
 
 app = FastAPI()
@@ -106,6 +107,7 @@ class _Relay:
         self.flush_sent_at = None  # loop time when the flush actually went to the provider
         self.last_event_at = asyncio.get_running_loop().time()
         self.closing = False
+        self.close_task = None
         self.failed = asyncio.Event()
         self.failure = None
         self.lock = asyncio.Lock()
@@ -133,6 +135,12 @@ class _Relay:
         elif finals == 0:
             reasons.append("no speech was detected, so transcription cannot be confirmed")
         return reasons
+
+    def close_provider(self) -> asyncio.Future:
+        """Start closing the provider once; the task runs on its own, so waits on it can be bounded."""
+        if self.close_task is None:
+            self.close_task = asyncio.ensure_future(self.provider.close())
+        return self.close_task
 
     def settled(self, now: float) -> bool:
         """Flush sent, nothing open, and the provider quiet for the settle period since the later of both."""
@@ -240,9 +248,9 @@ async def _session(ws: WebSocket) -> None:
         relay.closing = True
         for t in tasks:
             t.cancel()
-        # Started as its own task so the provider is closed even if this session is being cancelled.
-        closing = asyncio.ensure_future(provider.close())
-        await asyncio.shield(asyncio.gather(closing, *tasks, return_exceptions=True))
+        # The close runs as its own task, so it proceeds even if this session is cancelled; waiting is bounded
+        # so a provider that never finishes closing cannot hold the session (and its slot) open.
+        await asyncio.wait([relay.close_provider(), *tasks], timeout=PROVIDER_CLOSE_TIMEOUT_S)
 
 
 async def _receive_audio(ws: WebSocket, relay: _Relay) -> None:
@@ -289,14 +297,20 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
     if relay.failure:
         return  # provider_failed already reported the error and closed the socket
     reasons = relay.incomplete_reasons()
+    if not relay.settled(loop.time()) and not reasons:
+        # Every expected final arrived, but the provider was still sending when the deadline passed.
+        reasons.append(f"the transcription provider had not settled within {FINALIZE_DEADLINE_S:g} s of stopping")
     relay.closing = True
-    await relay.provider.close()
+    close = relay.close_provider()
+    await asyncio.wait([close], timeout=PROVIDER_CLOSE_TIMEOUT_S)
+    cleanup = "timeout" if not close.done() else ("error" if close.exception() else "ok")
     await relay.send({"type": "stopped", "frames": frames, "samples": samples, "duration_s": samples / SAMPLE_RATE,
                       "segments": relay.segments, "utterances": relay.utterances_started,
                       "finals_before_flush": relay.finals_before_flush, "finals_after_flush": relay.finals_after_flush,
                       "dropped_s": relay.dropped_samples / SAMPLE_RATE,
                       "transcription": "incomplete" if reasons else "complete",
-                      "reason": "; ".join(reasons) or None})
+                      "reason": "; ".join(reasons) or None,
+                      "provider_cleanup": cleanup})
     await ws.close(code=1000)
 
 

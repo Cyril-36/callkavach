@@ -29,13 +29,16 @@ class FakeProvider:
 
     instances = []
 
-    def __init__(self, on_audio=None, on_flush=None, block_audio=False, audio_delay=0.0):
+    def __init__(self, on_audio=None, on_flush=None, block_audio=False, audio_delay=0.0, close_delay=0.0,
+                 close_error=False):
         self.out = asyncio.Queue()
         self.audio = bytearray()
         self.log = []
         self.flushed = self.closed = self.open_utterance = False
         self.on_audio, self.on_flush = on_audio, on_flush
         self.block_audio, self.audio_delay = block_audio, audio_delay
+        self.close_delay, self.close_error = close_delay, close_error
+        self.close_called = False
         FakeProvider.instances.append(self)
 
     def emit(self, *msgs):
@@ -71,6 +74,11 @@ class FakeProvider:
             yield m
 
     async def close(self):
+        self.close_called = True
+        if self.close_delay:
+            await asyncio.sleep(self.close_delay)
+        if self.close_error:
+            raise ConnectionError("close handshake failed")
         self.closed = True
         self.out.put_nowait(None)
 
@@ -474,3 +482,71 @@ def test_queue_that_cannot_drain_by_the_deadline_is_incomplete_and_never_flushed
     assert stopped["transcription"] == "incomplete" and "had not reached" in stopped["reason"]
     assert not FakeProvider.instances[0].flushed
     wait_until(lambda: FakeProvider.instances[0].closed, "provider not closed")
+
+
+# --- deadline and bounded shutdown ---
+
+def test_provider_that_never_settles_is_incomplete(client, monkeypatch):
+    """Every expected final arrives, but the provider keeps sending events past the deadline."""
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.5)
+    monkeypatch.setattr(audio_ws, "FINALIZE_SETTLE_S", 0.2)
+
+    def chatter_after_final(p):
+        p.emit(signal("END_SPEECH"), data("utt-1", "the only utterance"))
+
+        async def keep_talking():
+            while not p.closed and not p.close_called:
+                p.emit({"type": "events", "data": {"signal_type": "OTHER"}})  # ignored, but provider not quiet
+                await asyncio.sleep(0.02)
+        p.chatter = asyncio.get_running_loop().create_task(keep_talking())
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_flush = chatter_after_final
+        stopped, events = stop_and_collect(ws)
+    assert stopped["utterances"] == 1 and stopped["finals_after_flush"] == 1  # accounting alone looks complete
+    assert stopped["transcription"] == "incomplete"
+    assert "had not settled" in stopped["reason"]
+
+
+def test_slow_provider_close_is_bounded_and_reported(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "PROVIDER_CLOSE_TIMEOUT_S", 0.2)
+    use_provider(monkeypatch, close_delay=30)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        t0 = time.monotonic()
+        stopped, _ = stop_and_collect(ws)
+        elapsed = time.monotonic() - t0
+    assert elapsed < 1.5, f"stop took {elapsed:.2f}s despite a bounded close"
+    assert stopped["transcription"] == "complete"  # the transcript itself was fully accounted for
+    assert stopped["provider_cleanup"] == "timeout"
+    assert FakeProvider.instances[0].close_called
+    wait_for_no_sessions()  # the session slot is released even though close never finished
+
+
+def test_provider_close_error_is_reported_not_raised(client, monkeypatch):
+    use_provider(monkeypatch, close_error=True)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        stopped, _ = stop_and_collect(ws)
+        with pytest.raises(WebSocketDisconnect) as closed:
+            ws.receive_json()
+    assert stopped["provider_cleanup"] == "error" and closed.value.code == 1000
+    wait_for_no_sessions()
+
+
+def test_normal_stop_reports_clean_provider_cleanup(client):
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        stopped, _ = stop_and_collect(ws)
+    assert stopped["transcription"] == "complete" and stopped["provider_cleanup"] == "ok"
+
+
+def test_disconnect_with_hanging_provider_close_releases_the_session(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "PROVIDER_CLOSE_TIMEOUT_S", 0.2)
+    use_provider(monkeypatch, close_delay=30)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        ws.send_bytes(b"\x00\x00" * 1600)
+        receive_until(ws, "ack")
+    wait_for_no_sessions()
+    assert FakeProvider.instances[0].close_called

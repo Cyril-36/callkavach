@@ -244,6 +244,25 @@ await test("audio dropped by the browser is shown as a gap and makes the session
   assertReleased("client gap");
 });
 
+await test("a provider cleanup timeout is shown, not reported as a clean Stop", async () => {
+  await startListening();
+  const ws = sockets.at(-1);
+  const handler = ws.onmessage;
+  ws.onmessage = (e) => {
+    let data = e.data;
+    try {
+      const msg = JSON.parse(data);
+      if (msg.type === "stopped") data = JSON.stringify({ ...msg, provider_cleanup: "timeout" });
+    } catch {}
+    handler({ data });
+  };
+  $("stop").click();
+  await until(() => $("status").textContent.startsWith("Stopped"));
+  const status = $("status").textContent;
+  assert(status === "Stopped (transcription provider did not close in time)", `"${status}"`);
+  assertReleased("cleanup timeout");
+});
+
 results.push(results.every((r) => r.startsWith("PASS")) ? "\nALL PASSED" : "\nFAILURES");
 $("results").textContent = results.join("\n");
 document.title = results.at(-1).trim();
