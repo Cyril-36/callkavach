@@ -17,7 +17,10 @@ speech, so the last utterance is finalized by the flush during the Stop deadline
 Usage:
   bash backend/spike/make_samples.sh
   uv run --no-project --with "fastapi>=0.115" --with "uvicorn>=0.30" --with "websockets>=13" --with httpx \\
-      python backend/spike/e2e_harness.py --mode production --stop both --json report.json
+      python backend/spike/e2e_harness.py --mode production --stop both --json /tmp/callkavach-e2e-report.json
+
+The report contains transcript text and evidence quotes, so it is written outside the repository: a --json
+path inside the repository is refused unless --allow-report-in-repo is given.
 """
 import argparse
 import asyncio
@@ -29,6 +32,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 
 import uvicorn  # noqa: E402
@@ -45,6 +49,17 @@ CASES = {  # name: (wav in samples/, language, note for the reader only)
     "hi_en_bank_genuine": ("hi_en_bank_genuine.wav", "hi-IN", "synthetic genuine: declined card, never share OTP"),
     "hi_en_delivery_genuine": ("hi_en_delivery_genuine.wav", "hi-IN", "synthetic genuine: delivery code at the door"),
 }
+
+
+def report_path_error(path: str, repo_root: Path = REPO_ROOT):
+    """Why this report path is not allowed, or None. Reports hold transcripts and quotes; keep them out of Git."""
+    target = Path(path).expanduser().resolve()  # follows symlinks and "..", so aliases into the repo are caught
+    root = repo_root.resolve()
+    if target == root or root in target.parents:
+        return (f"refusing to write the report inside the repository ({target}): it contains transcript text and "
+                f"evidence quotes. Use a path outside it, e.g. /tmp/callkavach-e2e-report.json, or pass "
+                f"--allow-report-in-repo if you really mean it.")
+    return None
 
 
 def _free_port() -> int:
@@ -160,14 +175,19 @@ def _line(run: dict) -> str:
             f"stop->end={t['stop_to_end_s']}s errors={len(run['errors'])}")
 
 
-def main() -> int:
+def main(argv=None) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--mode", choices=["production", "measurement"], default="production")
     p.add_argument("--stop", choices=["pause", "abrupt", "both"], default="both")
     p.add_argument("--cases", nargs="*", default=list(CASES))
     p.add_argument("--repeat", type=int, default=1)
-    p.add_argument("--json", help="write the full report here")
-    args = p.parse_args()
+    p.add_argument("--json", help="write the full report here, outside the repository (e.g. /tmp/callkavach-e2e-report.json)")
+    p.add_argument("--allow-report-in-repo", action="store_true",
+                   help="permit a --json path inside the repository (the report holds transcripts and quotes)")
+    args = p.parse_args(argv)
+    if args.json and not args.allow_report_in_repo and (why := report_path_error(args.json)):
+        print(f"error: {why}", file=sys.stderr)  # checked before any setup or paid call
+        return 2
     missing = [n for n in args.cases if not (HERE / "samples" / CASES[n][0]).exists()]
     if missing:
         print(f"missing samples for {missing}; run: bash backend/spike/make_samples.sh", file=sys.stderr)

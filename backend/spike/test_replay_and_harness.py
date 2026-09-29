@@ -146,3 +146,51 @@ async def test_slow_earlier_analysis_never_rewinds_the_replay_clock():
     for e, rec in zip(r["events"], received):
         assert e["emitted_at_ms"] >= rec + 250, "emission includes the measured processing time"
     assert r["first_red_at_ms"] == emitted[2] and r["first_red_at_ms"] > 1200
+
+
+# --- e2e report location: never inside the repository by default (mock-only, no network) ---
+
+@pytest.fixture
+def harness(monkeypatch):
+    import e2e_harness
+
+    def no_setup(mode):
+        raise AssertionError("the report path must be checked before any setup or paid call")
+    monkeypatch.setattr(e2e_harness, "configure", no_setup)
+    return e2e_harness
+
+
+def test_report_paths_inside_the_repository_are_refused(harness, tmp_path, monkeypatch):
+    root = harness.REPO_ROOT
+    monkeypatch.chdir(root)
+    link = tmp_path / "repo-alias"
+    link.symlink_to(root / "backend", target_is_directory=True)
+    for inside in ["e2e_report.json",  # the previously documented, relative path
+                   str(root / "e2e_report.json"),
+                   str(root / "backend" / "spike" / "report.json"),
+                   str(tmp_path / ".." / tmp_path.name / "repo-alias" / "r.json"),
+                   str(link / "spike" / "r.json"),  # a symlink into the repository
+                   "backend/../backend/spike/r.json"]:
+        why = harness.report_path_error(inside)
+        assert why and "inside the repository" in why and "transcript" in why, inside
+
+
+def test_report_paths_outside_the_repository_are_allowed(harness, tmp_path):
+    for outside in ["/tmp/callkavach-e2e-report.json", str(tmp_path / "report.json")]:
+        assert harness.report_path_error(outside) is None, outside
+
+
+def test_main_refuses_an_in_repo_report_before_any_setup(harness, capsys):
+    target = harness.REPO_ROOT / "e2e_report.json"
+    assert harness.main(["--json", str(target), "--stop", "pause"]) == 2
+    err = capsys.readouterr().err
+    assert "refusing to write the report inside the repository" in err and "/tmp/callkavach-e2e-report.json" in err
+    assert not target.exists()
+
+
+def test_allow_flag_lets_an_in_repo_path_past_the_check(harness, tmp_path, monkeypatch):
+    wav = tmp_path / "x.wav"
+    wav.write_bytes(b"")  # only has to exist; setup is stopped before it is read
+    monkeypatch.setattr(harness, "CASES", {"x": (str(wav), "te-IN", "test")})
+    with pytest.raises(AssertionError, match="checked before any setup"):
+        harness.main(["--json", str(harness.REPO_ROOT / "r.json"), "--allow-report-in-repo", "--cases", "x"])

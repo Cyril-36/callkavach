@@ -69,13 +69,13 @@ uv run --no-project --with httpx python backend/spike/detector_smoke.py
 
 ## End-to-end harness and evaluation replay
 
-- **`e2e_harness.py`** runs synthetic WAVs (`make_samples.sh`) through the real relay, started in-process: real Sarvam, then the configured detector. It writes a `callkavach.e2e_report.v1` JSON report and uses `relay_client.py`, the same client `relay_smoke.py` uses. `--mode production` is the relay as configured (8 s analysis timeout). `--mode measurement` raises the analysis and HTTP timeouts to 30 s for latency observation only. `--stop pause|abrupt|both` controls whether Stop follows 1.5 s of silence or comes right after the speech. Every run makes billed calls.
+- **`e2e_harness.py`** runs synthetic WAVs (`make_samples.sh`) through the real relay, started in-process: real Sarvam, then the configured detector. It writes a `callkavach.e2e_report.v1` JSON report (outside the repository, because it holds transcripts and quotes; paths inside the repository are refused unless `--allow-report-in-repo` is given) and uses `relay_client.py`, the same client `relay_smoke.py` uses. `--mode production` is the relay as configured (8 s analysis timeout). `--mode measurement` raises the analysis and HTTP timeouts to 30 s for latency observation only. `--stop pause|abrupt|both` controls whether Stop follows 1.5 s of silence or comes right after the speech. Every run makes billed calls.
 - **`replay.py`** replays one call's `detector_view` text sequentially through the real detector (`callkavach.detector_replay.v1`). It's a functional outcome check (level, evidence, status), **not** a live-timing or warned-before-first-ask benchmark: it waits for each analysis before feeding the next segment. Time-based development metrics come from the evaluation runner (PR #11), which schedules segments on a real monotonic timeline.
 - **`DETECTOR_CONTRACT.md`** documents the event, summary and report fields and their clocks.
 
 ```bash
 uv run --no-project --with "fastapi>=0.115" --with "uvicorn>=0.30" --with "websockets>=13" --with httpx \
-    python backend/spike/e2e_harness.py --mode production --stop both --json e2e_report.json
+    python backend/spike/e2e_harness.py --mode production --stop both --json /tmp/callkavach-e2e-report.json
 ```
 
 Automated tests (no network, no paid calls):

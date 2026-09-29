@@ -80,7 +80,7 @@ Any other key raises `ValueError` before anything reaches the verifier. That inc
 
 ## Live end-to-end report: `callkavach.e2e_report.v1`
 
-`e2e_harness.py --json` writes `{schema, config, runs, limitations}`.
+`e2e_harness.py --json /tmp/callkavach-e2e-report.json` writes `{schema, config, runs, limitations}`. The report contains transcript text and evidence quotes, so the harness refuses a path inside the repository unless `--allow-report-in-repo` is given.
 - **`config`** records the mode (`production` or `measurement`), the analysis and HTTP timeouts, the Stop deadline, provider and model.
 - **Each run** has the case, language and stop style, plus:
   - `transcripts`: segment ID, text, client time;
