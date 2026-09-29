@@ -26,8 +26,10 @@ class FakeModule:
         def add(self, segment):
             FakeModule.seen.append(segment)
             self.count += 1
+            level = "red" if "request" in segment.text else (
+                "amber" if "caution" in segment.text else "none")
             self.tasks.append(asyncio.create_task(self.emit({
-                "type": "risk", "level": "red" if "request" in segment.text else "none",
+                "type": "risk", "level": level,
                 "emitted_at_ms": self.clock(), "analysed_through_ms": segment.received_ms,
                 "analysis": "unavailable" if self.verifier == "fail" else "ok",
                 "error": "scripted provider failure" if self.verifier == "fail" else None,
@@ -101,6 +103,22 @@ class ReplayRunnerTests(unittest.IsolatedAsyncioTestCase):
                                       [{"call_id": "a", "label": "unknown", "first_ask_at_ms": 0}],
                                       "ok", FakeModule)
         self.assertEqual(len(FakeModule.seen), previous_count)
+
+    async def test_amber_is_separate_and_failed_calls_stay_in_denominators(self):
+        transcripts = [call("genuine", "caution about OTP"),
+                       call("scam", "ordinary end")]
+        truth = [{"call_id": "genuine", "label": "genuine", "first_ask_at_ms": None},
+                 {"call_id": "scam", "label": "scam", "first_ask_at_ms": 2}]
+        report = await run_development_set(transcripts, truth, "fail", FakeModule)
+        overall = report["metrics"]["overall"]
+        self.assertEqual(overall["false_alarm_rate"],
+                         {"numerator": 0, "denominator": 1, "rate": 0.0})
+        self.assertEqual(overall["scam_recall"],
+                         {"numerator": 0, "denominator": 1, "rate": 0.0})
+        self.assertEqual(report["amber_warning_rates"]["overall"]["genuine_amber_warning_rate"],
+                         {"numerator": 1, "denominator": 1, "rate": 1.0})
+        self.assertEqual(report["failure_calls"], 2)
+        self.assertIn("RED", report["metric_definitions"]["false_alarm_rate"])
 
     async def test_merged_detector_contract_with_fake_verifier(self):
         class Verifier:

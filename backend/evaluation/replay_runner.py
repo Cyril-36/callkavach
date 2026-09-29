@@ -17,6 +17,31 @@ from backend.evaluation.validate_multilingual_pilot import validate_pilot
 DATA_DIR = Path(__file__).parent / "data"
 
 
+def _rate(numerator, denominator):
+    return {"numerator": numerator, "denominator": denominator,
+            "rate": numerator / denominator if denominator else None}
+
+
+def _amber_warning_summary(results, truth):
+    """Count emitted amber warnings independently of red alerts, including failed calls."""
+    by_id = {record["call_id"]: record for record in truth}
+
+    def summarize(calls):
+        genuine = [call for call in calls if by_id[call["call_id"]]["label"] == "genuine"]
+        scams = [call for call in calls if by_id[call["call_id"]]["label"] == "scam"]
+        warned = lambda call: any(event.get("level") == "amber" for event in call["risk_events"])
+        return {
+            "genuine_amber_warning_rate": _rate(sum(map(warned, genuine)), len(genuine)),
+            "scam_amber_warning_rate": _rate(sum(map(warned, scams)), len(scams)),
+        }
+
+    languages = dict.fromkeys(call["language"] for call in results)
+    return {"overall": summarize(results), "by_language": {
+        language: summarize([call for call in results if call["language"] == language])
+        for language in languages
+    }}
+
+
 async def replay_call(transcript, verifier, detector_module, *, finalize_timeout_s=30):
     """Feed one finalized segment at each scripted end time, capturing real risk events.
 
@@ -131,6 +156,12 @@ async def run_development_set(transcripts, truth, verifier, detector_module, *, 
         "review_status": "independent_language_review_pending",
         "calls": results,
         "metrics": summarize_calls(metric_inputs),
+        "metric_definitions": {
+            "false_alarm_rate": "genuine calls with an emitted RED alert / all genuine calls",
+            "amber_warning_rates": "calls with an emitted AMBER event / all calls of that label; may also later turn RED",
+            "failed_sessions": "included in all applicable rate denominators",
+        },
+        "amber_warning_rates": _amber_warning_summary(results, truth),
         "latency": {
             "verifier_calls": len(event_latencies),
             "median_verifier_latency_ms": median(event_latencies) if event_latencies else None,

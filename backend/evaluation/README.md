@@ -18,10 +18,14 @@ the runner creates an opaque per-session segment ID and a real monotonic
 receive time for the detector. It captures the detector's actual emitted
 `risk` events, then joins the separate ground truth after that call closes.
 The first `red` event's `emitted_at_ms` becomes `red_alert_at_ms` for the
-existing metrics. Missing alerts stay null. The report includes genuine false
-alarms, scam recall, red warning before the scripted first ask, verifier latency,
-post-receive delay, and detector failures. Failed calls remain in metric
-denominators and are counted separately.
+existing metrics. Missing alerts stay null. `metrics.overall.false_alarm_rate`
+is the **RED-alert false-alarm rate**: genuine calls with an emitted red alert
+divided by all genuine calls. `amber_warning_rates` separately reports the
+fraction of genuine and scam calls with an emitted amber event, including calls
+that later turn red. The report also includes scam recall, red warning before
+the scripted first ask, verifier latency, post-receive delay, and detector
+failures. Failed calls remain in all applicable metric denominators and are
+counted separately in `failure_calls`.
 
 The command below uses the merged detector and requires a configured
 AICredits verifier. It exits without producing results if the provider is
@@ -32,6 +36,14 @@ repository. The repo uses `uv` to provide the detector's `httpx` dependency:
 uv run --no-project --with httpx python -m backend.evaluation.run_pilot \
   --output /tmp/callkavach-dev-replay.json
 ```
+
+Each live report includes a `reproducibility` manifest with the detector file's
+last commit SHA, selected provider and exact configured model, prompt version,
+UTC run times, provider HTTP/detector/finalize timeouts, and token usage and
+cost **where the API returned them**. Missing usage or cost is `null`, not zero;
+the runner does not infer a currency or price. Raw per-event provider metadata
+remains in `calls[].risk_events[].verifier`. The manifest is written only after
+a live run; this repository contains no measured pilot report.
 
 This is a **synthetic text replay**. Scripted segment and first-ask times are
 not measured speech or STT timing. `emitted_at_ms` and the processing delays
