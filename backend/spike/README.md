@@ -42,11 +42,12 @@ Samples are synthetic TTS (clean studio audio, one speaker). They do not represe
 - **Input contract.** Only `segment_id`, `text` and the server's receive time. No speaker labels (live STT has none), family IDs, scam/genuine labels, first-ask times or future segments. Evaluation data and ground truth are not used as prompt examples.
 - **Short aliases.** The model sees segments as `seg1`, `seg2`, … and the detector maps findings back to real segment IDs. In a live run the model mis-copied Sarvam's long request IDs and every finding was rejected.
 - **No spelling gate.** Every finalized segment is analysed, because Sarvam transliterates or mishears acronyms (OTP / ओटीपी, KYC → कार्ड/कैट, Cyber → "Cibir"). The prompt tells the model to judge meaning, not spelling.
-- **Strict validation.** A reply that is not a list of findings is a failed analysis. Each finding must have exactly `tactic`, `status` and `segment_id`, `quote`, with an optional `reason`; all strings; a known tactic and status (`present | negated | benign`); an alias from this request; and a non-empty quote of at most 300 characters that occurs in that segment. Negated and benign findings are validated too, but only `present` ones are evidence. Any rejected finding makes that analysis `partial`, never `ok`.
+- **Strict validation.** A reply that is not a list of findings is a failed analysis. Each finding must have exactly `tactic`, `status` and `segment_id`, `quote`, with an optional `reason`; all strings; a known tactic and status (`present | negated | benign`); an alias from this request; and a non-empty quote of at most 300 characters that occurs in that segment. Negated and benign findings are validated too, but only `present` ones are evidence. If any finding in a response is rejected, the whole response is a failed analysis (`analysis: "unavailable"`). Nothing from it is applied, not even its valid findings; the current warning is kept; and its segments stay unanalysed and are re-offered as new on the next call while they are still in the window.
 - **Risk is computed in code, not by the model.** `red` for a credential or remote-access request, a money request plus authority, threat or secrecy, or authority + threat + secrecy together. `amber` for two or more pressure tactics. Otherwise `none`, which means "no warning yet", never "safe". Warnings are never cleared during a session.
-- **Real emission timestamps.** Every `risk` event carries `emitted_at_ms`, stamped on the relay's session clock at the moment it is sent. It also carries `first_warning_at_ms` and `first_red_at_ms` (the emission times of the first amber and first red), plus `analysed_through_ms` (receive time of the newest analysed segment). These are the alert times evaluation should use, not segment or model times.
+- **Real emission timestamps.** The relay builds each `risk` event after acquiring its WebSocket send lock, immediately before the write, and stamps `emitted_at_ms` on its session clock. `first_warning_at_ms`, `first_red_at_ms` and the `stopped.analysis` summary use the same emission times. `analysed_through_ms` is the receive time of the newest analysed segment. These are the alert times evaluation should use, not segment or model times. See `DETECTOR_CONTRACT.md`.
 - **Bounds.** One call in flight; segments that arrive meanwhile are coalesced. At least 1 s between calls, an 8 s timeout per call, at most 60 calls per session, and at most 50 queued segments. Context is the last 12 segments within 4,000 characters, plus up to 3 retained quotes per confirmed tactic, so early clues survive. Runs of four or more digits are masked as `[NUMBER]` before anything leaves the server. Spelled-out numbers and names are not masked.
-- **Failures are visible.** A timeout, HTTP error, blocked or truncated reply, model mismatch, malformed reply or exhausted budget emits `analysis: "unavailable"` with the reason and keeps the current level. Stop waits, within the same 6 s deadline, for analysis of the final segments. `stopped.analysis` reports `complete | incomplete | pending | unavailable` separately from transcription completeness.
+- **Failures are visible.** A timeout, HTTP error, blocked or truncated reply, model mismatch, malformed reply, rejected finding or exhausted budget emits `analysis: "unavailable"` with the reason and keeps the current level. Stop waits, within the same 6 s deadline, for analysis of the final segments. `stopped.analysis` reports `complete | incomplete | pending | unavailable` separately from transcription completeness. If the deadline ends the session while a call is in flight, `stopped.analysis` has `status: "pending"`, `cut_off_by_stop_deadline: true`, `in_flight_for_s` and an explicit error; the in-flight call is cancelled and its result is never delivered or applied.
+- **Timeouts.** The production per-call timeout is `DETECTOR_CALL_TIMEOUT_S = 8.0` in `audio_ws.py`, and the provider HTTP timeout is also 8 s.
 
 ### Configuration (server-side only, environment or `.env`)
 
@@ -60,12 +61,25 @@ There are no default models. If the gateway answers with a different model from 
 
 **Privacy.** With AICredits, the redacted recent transcript text passes through the AICredits gateway to Google. According to AICredits, request and response content is stored for 30 days by default, subject to the account's retention settings, so the period can differ per account: check this account's settings rather than assuming 30 days. Content is routed to model providers outside India. Use synthetic or consented audio only.
 
-```bash
-uv run --no-project --with "fastapi>=0.115" --with httpx --with pytest --with pytest-asyncio --with websockets pytest -q backend/spike/
-```
-
 Live check with the configured provider (synthetic conversations only; makes billed calls). Its default `--timeout 30` applies to both the detector and the provider's HTTP client, so it measures latency; it is **not** a measure of reliability under the production 8 s timeout. Pass `--timeout 8` for that:
 
 ```bash
 uv run --no-project --with httpx python backend/spike/detector_smoke.py
+```
+
+## End-to-end harness and evaluation replay
+
+- **`e2e_harness.py`** runs synthetic WAVs (`make_samples.sh`) through the real relay, started in-process: real Sarvam, then the configured detector. It writes a `callkavach.e2e_report.v1` JSON report and uses `relay_client.py`, the same client `relay_smoke.py` uses. `--mode production` is the relay as configured (8 s analysis timeout). `--mode measurement` raises the analysis and HTTP timeouts to 30 s for latency observation only. `--stop pause|abrupt|both` controls whether Stop follows 1.5 s of silence or comes right after the speech. Every run makes billed calls.
+- **`replay.py`** replays one call's `detector_view` text through the real detector for the offline evaluation runner (`callkavach.detector_replay.v1`).
+- **`DETECTOR_CONTRACT.md`** documents the event, summary and report fields and their clocks.
+
+```bash
+uv run --no-project --with "fastapi>=0.115" --with "uvicorn>=0.30" --with "websockets>=13" --with httpx \
+    python backend/spike/e2e_harness.py --mode production --stop both --json e2e_report.json
+```
+
+Automated tests (no network, no paid calls):
+
+```bash
+uv run --no-project --with "fastapi>=0.115" --with "uvicorn>=0.30" --with httpx --with pytest --with pytest-asyncio --with websockets pytest -q backend/spike/
 ```

@@ -132,6 +132,7 @@ class SessionDetector:
         self.last_error = None
         self.analysis = "ok"
         self.in_flight = False
+        self._call_started_at = None  # loop time of the call in flight, for cut-off reporting
         self._wake = asyncio.Event()
         self._last_call_at = None
         self._task = asyncio.get_running_loop().create_task(self._run())
@@ -172,7 +173,7 @@ class SessionDetector:
                 continue
             self.in_flight = True
             self.calls += 1
-            self._last_call_at = loop.time()
+            self._last_call_at = self._call_started_at = loop.time()
             started = time.perf_counter()
             request_ids = {sid for _, sid, _, _ in self.window}
             # Segments not yet covered by a successful analysis (new ones, and earlier failures still in the
@@ -205,6 +206,7 @@ class SessionDetector:
                     await self.send(lambda now: self._risk_event(now, latency_s=latency_s))
             finally:
                 self.in_flight = False
+                self._call_started_at = None
             if self.pending:
                 self._wake.set()
 
@@ -320,4 +322,6 @@ class SessionDetector:
         return {"level": self.level, "reason": self.level_reason, "status": status, "error": self.last_error,
                 "analysed_segments": self.analysed, "unanalysed_segments": self.unanalysed(),
                 "calls": self.calls, "tactics": sorted(self.evidence), "rejected_findings": self.rejected_findings,
+                "in_flight_for_s": None if self._call_started_at is None else
+                round(asyncio.get_running_loop().time() - self._call_started_at, 3),
                 "first_warning_at_ms": self.first_warning_at_ms, "first_red_at_ms": self.first_red_at_ms}

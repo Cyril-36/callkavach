@@ -11,12 +11,11 @@ import argparse
 import asyncio
 import json
 import sys
-import time
-import wave
+from pathlib import Path
 
-import websockets
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-FRAME = 1600  # 100 ms at 16 kHz
+from relay_client import stream_wav  # noqa: E402
 
 
 async def main() -> int:
@@ -27,55 +26,21 @@ async def main() -> int:
     p.add_argument("--tail-silence", type=float, default=1.5, help="seconds of silence after the speech")
     args = p.parse_args()
 
-    with wave.open(args.wav) as w:
-        if (w.getframerate(), w.getnchannels(), w.getsampwidth()) != (16000, 1, 2):
-            print("WAV must be 16 kHz mono 16-bit", file=sys.stderr)
-            return 2
-        pcm = w.readframes(w.getnframes())
-    pcm += b"\x00\x00" * int(16000 * args.tail_silence)
-    speech_s = (len(pcm) // 2) / 16000 - args.tail_silence
+    def show(entry):
+        print(f"{entry['t']:6.2f}s  {json.dumps(entry['msg'], ensure_ascii=False)}")
 
-    async with websockets.connect(args.url) as ws:
-        t0 = time.perf_counter()
-        at = lambda: time.perf_counter() - t0
-        await ws.send(json.dumps({"type": "start", "encoding": "pcm_s16le", "channels": 1,
-                                  "sample_rate": 16000, "language_code": args.language_code}))
-        ready = json.loads(await ws.recv())
-        print(f"{at():6.2f}s  {ready['type']}  {ready.get('message', '')}")
-        if ready["type"] != "ready":
-            return 1
-
-        speech_end = None
-        stop_sent = None
-        segments = []
-
-        async def reader():
-            async for raw in ws:
-                msg = json.loads(raw)
-                if msg["type"] == "ack":
-                    continue
-                note = ""
-                if msg["type"] == "transcript":
-                    segments.append(msg["text"])
-                    if speech_end is not None:
-                        note = f"  [{at() - speech_end:.2f}s after speech audio ended; provider processing {msg['processing_latency_s']}s]"
-                print(f"{at():6.2f}s  {json.dumps(msg, ensure_ascii=False)}{note}")
-                if msg["type"] in ("stopped", "error"):
-                    return msg
-
-        read_task = asyncio.create_task(reader())
-        for i in range(0, len(pcm), FRAME * 2):
-            await ws.send(pcm[i:i + FRAME * 2])
-            if speech_end is None and i + FRAME * 2 >= len(pcm) - int(16000 * args.tail_silence) * 2:
-                speech_end = at()
-            await asyncio.sleep(0.1)  # real-time pacing
-        stop_sent = at()
-        await ws.send(json.dumps({"type": "stop"}))
-        final = await read_task
-        print(f"\nspeech audio {speech_s:.1f}s; stop sent at {stop_sent:.2f}s; "
-              f"stopped/error at {at():.2f}s ({at() - stop_sent:.2f}s after stop)")
-        print("TRANSCRIPT:", " | ".join(segments) or "(none)")
-        return 0 if final and final["type"] == "stopped" and final["transcription"] == "complete" and segments else 1
+    try:
+        run = await stream_wav(args.url, args.wav, args.language_code, tail_silence=args.tail_silence, on_message=show)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    final = run["final"]
+    segments = [m["msg"]["text"] for m in run["messages"] if m["msg"]["type"] == "transcript"]
+    if run["stop_sent_t"] is not None:
+        print(f"\nspeech audio {run['speech_s']:.1f}s; stop sent at {run['stop_sent_t']:.2f}s; "
+              f"stopped/error at {run['end_t']:.2f}s ({run['end_t'] - run['stop_sent_t']:.2f}s after stop)")
+    print("TRANSCRIPT:", " | ".join(segments) or "(none)")
+    return 0 if final and final["type"] == "stopped" and final["transcription"] == "complete" and segments else 1
 
 
 if __name__ == "__main__":
