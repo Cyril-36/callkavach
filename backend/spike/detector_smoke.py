@@ -71,15 +71,17 @@ async def run_conversation(verifier, lines, timeout_s):
 
 async def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("--timeout", type=float, default=30.0, help="per-call timeout for measurement (production: 8 s)")
+    p.add_argument("--timeout", type=float, default=30.0,
+                   help="detector and HTTP timeout. 30 s measures latency; production uses 8 s (pass --timeout 8)")
     p.add_argument("--json", help="write full results here")
     p.add_argument("--only", nargs="*", help="conversation names to run")
     args = p.parse_args()
-    verifier, why = make_verifier()
+    verifier, why = make_verifier(timeout_s=args.timeout)
     if not verifier:
         print(f"BLOCKED: {why}", file=sys.stderr)
         return 2
-    print(f"provider={verifier.provider} model={verifier.model} measurement timeout={args.timeout:g}s\n")
+    note = "" if args.timeout <= 8 else " (latency measurement, not production-timeout reliability)"
+    print(f"provider={verifier.provider} model={verifier.model} timeout={args.timeout:g}s{note}\n")
     results = {}
     for name, (kind, lines) in CONVERSATIONS.items():
         if args.only and name not in args.only:

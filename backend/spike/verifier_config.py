@@ -25,21 +25,22 @@ def _config(name: str):
     return None
 
 
-def make_verifier():
-    """Returns (verifier, None) or (None, reason it is unavailable)."""
+def make_verifier(timeout_s: float = 8.0):
+    """Returns (verifier, None) or (None, reason it is unavailable). timeout_s is the provider HTTP timeout."""
     provider = (_config("LLM_PROVIDER") or "aicredits").strip().lower()
     if provider == "aicredits":
         key, model = _config("AICREDITS_API_KEY"), _config("AICREDITS_MODEL")
         if not key or not model:
             missing = "AICREDITS_API_KEY" if not key else "AICREDITS_MODEL"
             return None, f"{missing} is not configured on the server (LLM_PROVIDER=aicredits)"
-        return AICreditsVerifier(key, model, base_url=_config("AICREDITS_BASE_URL") or DEFAULT_BASE_URL), None
+        return AICreditsVerifier(key, model, base_url=_config("AICREDITS_BASE_URL") or DEFAULT_BASE_URL,
+                                 timeout_s=timeout_s), None
     if provider == "gemini":
         key, model = _config("GEMINI_API_KEY"), _config("GEMINI_MODEL")
         if not key or not model:
             missing = "GEMINI_API_KEY" if not key else "GEMINI_MODEL"
             return None, f"{missing} is not configured on the server (LLM_PROVIDER=gemini)"
-        return GeminiVerifier(key, model), None
+        return GeminiVerifier(key, model, timeout_s=timeout_s), None
     if provider == "off":  # e.g. browser lifecycle tests: reported as unavailable, never silently skipped
         return None, "scam analysis is switched off on this server (LLM_PROVIDER=off)"
     return None, f"LLM_PROVIDER={provider!r} is not supported (use aicredits, gemini or off)"

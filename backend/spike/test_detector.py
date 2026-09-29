@@ -141,10 +141,10 @@ async def test_quotes_must_occur_in_the_named_segment():
             finding("threat_or_fabricated_crime", "s0", ""),  # empty quote: dropped
         ]
     d, events = await run(MockVerifier(respond), [seg(0, "This is Inspector Sharma, Mumbai Cyber Crime.")])
-    assert [t["tactic"] for t in events[-1]["tactics"]] == ["claimed_authority"]
+    # Any rejected finding fails the whole response: nothing is applied, the segment stays unanalysed.
+    assert events[-1]["tactics"] == [] and events[-1]["analysis"] == "unavailable"
     assert d.rejected_findings == 4 and events[-1]["rejected_findings"] == 4
-    assert events[-1]["analysis"] == "partial", "unverifiable output must not be reported as a clean analysis"
-    assert d.summary()["status"] == "incomplete"
+    assert d.analysed == 0 and d.unanalysed() == 1 and d.summary()["status"] == "incomplete"
 
 
 @pytest.mark.asyncio
@@ -460,7 +460,7 @@ async def test_aicredits_findings_still_pass_strict_detector_validation():
     def handler(request):
         return chat_reply(json.dumps({"findings": [finding("credential_request", "s0", "invented quote")]}))
     d, events = await run(aicredits_client(handler), [seg(0, "hello sir")])
-    assert events[-1]["analysis"] == "partial" and events[-1]["level"] == "none"
+    assert events[-1]["analysis"] == "unavailable" and events[-1]["level"] == "none"
     assert events[-1]["verifier"]["returned_model"] == "gemini-2.5-flash" and events[-1]["verifier"]["cost"] == 0.0123
 
 
@@ -523,17 +523,34 @@ async def test_malformed_findings_are_rejected_and_reported(bad):
     good = finding("urgency_pressure", "s0", "right now")
     d, events = await run(MockVerifier(lambda request: [good, bad]), [seg(0, "tell me the OTP right now")])
     e = events[-1]
-    assert [t["tactic"] for t in e["tactics"]] == ["urgency_pressure"]
-    assert e["analysis"] == "partial" and e["rejected_findings"] == 1 and "rejected" in e["error"]
-    assert e["level"] == "none"
+    assert e["tactics"] == [] and e["level"] == "none", "a response with a rejected finding is not applied"
+    assert e["analysis"] == "unavailable" and e["rejected_findings"] == 1 and "rejected" in e["error"]
+    assert d.unanalysed() == 1
 
 
 @pytest.mark.asyncio
-async def test_clean_reply_is_ok_after_an_earlier_partial_one():
-    replies = iter([[finding("urgency_pressure", "s9", "now")], []])
-    d, events = await run(MockVerifier(lambda request: next(replies)), [seg(0, "a"), seg(1, "b")], gap=0.05)
-    assert [e["analysis"] for e in events] == ["partial", "ok"]
-    assert d.summary()["status"] == "incomplete", "the session still had unverifiable output"
+async def test_one_valid_and_one_invalid_finding_fails_the_response_keeps_the_warning_and_retries():
+    calls = {"n": 0}
+
+    def respond(request):
+        calls["n"] += 1
+        if calls["n"] == 1:  # clean: establishes a red warning
+            return [finding("credential_request", "s0", "tell me the OTP")]
+        if calls["n"] == 2:  # one valid, one invalid finding about s1
+            return [finding("urgency_pressure", "s1", "right now"), finding("remote_access_request", "s1", "invented")]
+        return [finding("urgency_pressure", "s1", "right now")]  # retry, now clean
+    v = MockVerifier(respond)
+    segments = [seg(0, "tell me the OTP"), seg(1, "do it right now"), seg(2, "hello?")]
+    d, events = await run(v, segments, gap=0.05)
+    assert [e["analysis"] for e in events] == ["ok", "unavailable", "ok"]
+    failed = events[1]
+    assert failed["level"] == "red", "the existing warning is kept"
+    assert "urgency_pressure" not in [t["tactic"] for t in failed["tactics"]], "the valid half is not applied either"
+    assert failed["rejected_findings"] == 1 and failed["unanalysed_segments"] == 1
+    retry = v.requests[2]
+    assert {s["segment_id"] for s in retry["segments"] if s["new"]} == {"seg2", "seg3"}, "failed segment re-offered"
+    assert "urgency_pressure" in [t["tactic"] for t in events[2]["tactics"]]
+    assert d.summary()["status"] == "complete" and d.analysed == 3
 
 
 # --- server emission timestamps ---
@@ -617,4 +634,36 @@ async def test_a_real_segment_id_copied_back_by_the_model_is_rejected():
     long_id = "20260929_2f74cc09-1ccd-4c76-8d82-0c076d0e1b2a"
     raw = {"tactic": "credential_request", "status": "present", "segment_id": long_id, "quote": "OTP"}
     d, events = await run(MockVerifier(lambda request: [raw]), [Segment(long_id, "tell me the OTP", 0)])
-    assert events[-1]["analysis"] == "partial" and events[-1]["level"] == "none"
+    assert events[-1]["analysis"] == "unavailable" and events[-1]["level"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_timestamps_are_taken_at_the_send_boundary_after_a_delayed_send_lock():
+    """The sender stamps after acquiring its send lock; a slow earlier send delays the emission time."""
+    now = {"ms": 1000}
+    lock = asyncio.Lock()
+    sent = []
+
+    async def send(build):  # mirrors _Relay.send_built
+        async with lock:
+            sent.append(build(now["ms"]))
+
+    async def slow_other_send():  # e.g. a large transcript frame occupying the socket
+        async with lock:
+            await asyncio.sleep(0.2)
+            now["ms"] = 1350  # the clock has moved on by the time the lock is released
+
+    v = MockVerifier(lambda request: [finding("credential_request", "s0", "the OTP")])
+    d = SessionDetector(v, send=send, min_interval_s=0.0, clock=lambda: now["ms"])
+    holder = asyncio.create_task(slow_other_send())
+    await asyncio.sleep(0.01)
+    d.add(Segment("s0", "read me the OTP", 900))
+    for _ in range(100):
+        if sent:
+            break
+        await asyncio.sleep(0.01)
+    await holder
+    await d.close()
+    assert sent[0]["emitted_at_ms"] == 1350, "stamped when the lock was acquired, not when analysis finished"
+    assert sent[0]["first_red_at_ms"] == 1350 and sent[0]["first_warning_at_ms"] == 1350
+    assert d.summary()["first_red_at_ms"] == 1350 and d.summary()["first_warning_at_ms"] == 1350

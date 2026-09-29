@@ -58,13 +58,13 @@ Samples are synthetic TTS (clean studio audio, one speaker). They do not represe
 
 There are no default models. If the gateway answers with a different model from the one configured, the reply is rejected; nothing is substituted. AICredits documents only `response_format: {"type": "json_object"}` (no JSON schema), so the output format is enforced by the prompt and the strict local validation.
 
-**Privacy.** With AICredits, the redacted recent transcript text passes through the AICredits gateway to Google. The AICredits privacy policy says prompts are retained for 30 days and routed to providers outside India. Use synthetic or consented audio only.
+**Privacy.** With AICredits, the redacted recent transcript text passes through the AICredits gateway to Google. According to AICredits, request and response content is stored for 30 days by default, subject to the account's retention settings, so the period can differ per account: check this account's settings rather than assuming 30 days. Content is routed to model providers outside India. Use synthetic or consented audio only.
 
 ```bash
 uv run --no-project --with "fastapi>=0.115" --with httpx --with pytest --with pytest-asyncio --with websockets pytest -q backend/spike/
 ```
 
-Live check with the configured provider (synthetic conversations only; makes billed calls):
+Live check with the configured provider (synthetic conversations only; makes billed calls). Its default `--timeout 30` applies to both the detector and the provider's HTTP client, so it measures latency; it is **not** a measure of reliability under the production 8 s timeout. Pass `--timeout 8` for that:
 
 ```bash
 uv run --no-project --with httpx python backend/spike/detector_smoke.py

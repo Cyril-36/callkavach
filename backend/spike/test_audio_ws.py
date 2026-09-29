@@ -4,7 +4,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
 import audio_ws
 from detector import VerifierError as VerifierErrorForTest
@@ -742,3 +742,29 @@ def test_detector_is_closed_when_the_client_disconnects(client):
         receive_until(ws, "ack")
     wait_for_no_sessions()
     wait_until(lambda: RecordingVerifier.instances[0].closed, "verifier not closed after disconnect")
+
+
+def test_relay_risk_timestamps_use_the_session_clock_at_send(client, monkeypatch):
+    def respond(request):
+        return [{"tactic": "credential_request", "status": "present", "segment_id": s["segment_id"],
+                 "quote": "OTP"} for s in request["segments"] if s["new"]]
+    use_verifier(monkeypatch, respond)
+    real_send_json = WebSocket.send_json
+    delays = {"risk": 0}
+
+    async def slow_send_json(self, data, mode="text"):
+        if data.get("type") == "risk":
+            delays["risk"] += 1
+        return await real_send_json(self, data, mode)
+    monkeypatch.setattr(WebSocket, "send_json", slow_send_json)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = speak_lines("tell me the OTP")
+        provider.on_flush = lambda p: None
+        stopped, events = stop_and_collect(ws)
+    risk = [e for e in events if e["type"] == "risk"][-1]
+    assert delays["risk"] >= 1
+    assert risk["emitted_at_ms"] >= risk["analysed_through_ms"] >= 0
+    assert risk["first_red_at_ms"] == risk["emitted_at_ms"]
+    assert stopped["analysis"]["first_red_at_ms"] == risk["first_red_at_ms"], "summary uses the same emission clock"

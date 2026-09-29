@@ -5,6 +5,9 @@ Contract
   Nothing else crosses into the detector: no speaker labels (live STT has none), no family IDs, labels,
   first-ask times or future dialogue. `Segment.from_event` reads only those three fields.
   Output: `risk` events (see `SessionDetector._risk_event`), emitted after each analysis or failure.
+  Events are built by the sender at its send boundary (`send(build)` calls `build(now_ms)` after taking its
+  WebSocket send lock), so `emitted_at_ms`, `first_warning_at_ms`, `first_red_at_ms` and `summary()` all use
+  the time the event actually went out.
 
 Design
   - A verifier (Gemini, or a mock in tests) labels tactics in a bounded window of recent segments. There is
@@ -96,14 +99,20 @@ class _Quote:
 class SessionDetector:
     """One per call session. `add()` finalized segments in order; results arrive through `emit`."""
 
-    def __init__(self, verifier, emit, *, max_calls=60, min_interval_s=1.0, call_timeout_s=8.0,
+    def __init__(self, verifier, emit=None, *, send=None, max_calls=60, min_interval_s=1.0, call_timeout_s=8.0,
                  window_segments=12, window_chars=4000, max_quotes_per_tactic=3, max_pending=50, clock=None):
-        self.verifier, self.emit = verifier, emit
+        """emit(event): simple sink, stamped with `clock` just before the call (tests, smoke scripts).
+        send(build): sender-controlled stamping; it must call build(now_ms) at its real send boundary
+        (the relay does this after acquiring its WebSocket send lock). Exactly one of the two is used."""
+        self.verifier = verifier
         loop = asyncio.get_running_loop()
         created = loop.time()
-        # Milliseconds since the session started, on the server's monotonic clock. Risk events are stamped
-        # with this at the moment they are emitted, so evaluation measures real alert emission times.
+        # Milliseconds since the session started, on the server's monotonic clock.
         self.clock = clock or (lambda: int((loop.time() - created) * 1000))
+        if send is None:
+            async def send(build):
+                await emit(build(self.clock()))
+        self.send = send
         self.max_calls, self.min_interval_s, self.call_timeout_s = max_calls, min_interval_s, call_timeout_s
         self.window_segments, self.window_chars = window_segments, window_chars
         self.max_quotes_per_tactic, self.max_pending = max_quotes_per_tactic, max_pending
@@ -166,8 +175,12 @@ class SessionDetector:
             self._last_call_at = loop.time()
             started = time.perf_counter()
             request_ids = {sid for _, sid, _, _ in self.window}
+            # Segments not yet covered by a successful analysis (new ones, and earlier failures still in the
+            # window) are marked new, so a retry asks the model to look at them again.
+            unanalysed_ids = request_ids - self.done_ids
+            self.last_call_rejected = 0
             try:
-                findings = await asyncio.wait_for(self.verifier.analyse(self._request({s.segment_id for s in new})),
+                findings = await asyncio.wait_for(self.verifier.analyse(self._request(unanalysed_ids)),
                                                   self.call_timeout_s)
                 accepted, rejected = self._validate(findings)  # raises if the reply is not a findings list
             except asyncio.TimeoutError:
@@ -175,18 +188,21 @@ class SessionDetector:
             except Exception as e:  # VerifierError, transport errors, malformed replies
                 await self._fail(f"analysis failed: {e}")
             else:
-                self.analysed += len(request_ids - self.done_ids)
-                self.done_ids |= request_ids  # a retry covers earlier failed segments still in the window
-                self.analysed_through_ms = max(ms for _, _, _, ms in self.window)
-                self._apply(accepted)
-                self.last_call_rejected = len(rejected)
-                self.rejected_findings += len(rejected)
-                if rejected:  # some output could not be verified: the result may be missing evidence
-                    self.analysis = "partial"
-                    self.last_error = f"{len(rejected)} finding(s) rejected: " + "; ".join(rejected[:3])
+                if rejected:
+                    # Any finding that fails schema, alias or quote checks makes the whole response a failed
+                    # analysis: none of it is applied, its segments stay unanalysed for a retry, and the
+                    # current warning is kept.
+                    self.last_call_rejected = len(rejected)
+                    self.rejected_findings += len(rejected)
+                    await self._fail(f"analysis failed: {len(rejected)} finding(s) rejected: " + "; ".join(rejected[:3]))
                 else:
+                    self.analysed += len(unanalysed_ids)
+                    self.done_ids |= request_ids
+                    self.analysed_through_ms = max(ms for _, _, _, ms in self.window)
+                    self._apply(accepted)
                     self.analysis, self.last_error = "ok", None
-                await self.emit(self._risk_event(latency_s=time.perf_counter() - started))
+                    latency_s = time.perf_counter() - started
+                    await self.send(lambda now: self._risk_event(now, latency_s=latency_s))
             finally:
                 self.in_flight = False
             if self.pending:
@@ -262,14 +278,13 @@ class SessionDetector:
 
     async def _fail(self, message: str) -> None:
         self.analysis, self.last_error = "unavailable", message
-        await self.emit(self._risk_event())
+        await self.send(lambda now: self._risk_event(now))
 
     def unanalysed(self) -> int:
         return self.lost + len({sid for _, sid, _, _ in self.window} - self.done_ids) + len(self.pending)
 
-    def _risk_event(self, latency_s=None) -> dict:
-        """Built immediately before it is emitted, so emitted_at_ms is the actual server emission time."""
-        now = self.clock()
+    def _risk_event(self, now: int, latency_s=None) -> dict:
+        """Built by the sender at its send boundary with the emission time `now` (session milliseconds)."""
         if self.level in ("amber", "red") and self.first_warning_at_ms is None:
             self.first_warning_at_ms = now
         if self.level == "red" and self.first_red_at_ms is None:
@@ -298,7 +313,7 @@ class SessionDetector:
         """State for the session's final report."""
         if not self.idle():
             status = "pending"
-        elif self.analysis != "ok" or self.unanalysed() or self.rejected_findings:
+        elif self.analysis != "ok" or self.unanalysed():
             status = "incomplete"
         else:
             status = "complete"

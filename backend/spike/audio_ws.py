@@ -170,6 +170,17 @@ class _Relay:
                 return  # socket already closed after a provider failure
             await self.ws.send_json(msg)
 
+    def session_ms(self) -> int:
+        return int((asyncio.get_running_loop().time() - self.started_at) * 1000)
+
+    async def send_built(self, build) -> None:
+        """Send an event whose timestamps are taken at the real send boundary: after the send lock is held,
+        immediately before the WebSocket write (used for detector risk events)."""
+        async with self.lock:
+            if self.failure:
+                return
+            await self.ws.send_json(build(self.session_ms()))
+
     def incomplete_reasons(self) -> list[str]:
         """Why transcription cannot be called complete right now; empty means complete."""
         reasons = []
@@ -242,8 +253,7 @@ class _Relay:
                 self.segments += 1
                 await self.send(event)
                 if self.detector:  # finalized segments only, in arrival order; no speaker or other metadata
-                    received_ms = int((asyncio.get_running_loop().time() - self.started_at) * 1000)
-                    self.detector.add(Segment.from_event(event, received_ms))
+                    self.detector.add(Segment.from_event(event, self.session_ms()))
                 continue
             await self.send(event)
         if not self.closing:
@@ -297,10 +307,8 @@ async def _session(ws: WebSocket) -> None:
 
     relay = _Relay(ws, provider)
     verifier, relay.detector_unavailable = verifier_factory()
-    if verifier:  # same session clock as segment receive times, so alert emission times are comparable
-        loop = asyncio.get_running_loop()
-        relay.detector = SessionDetector(verifier, relay.send,
-                                         clock=lambda: int((loop.time() - relay.started_at) * 1000))
+    if verifier:  # one session clock for segment receive times and risk emission times
+        relay.detector = SessionDetector(verifier, send=relay.send_built, clock=relay.session_ms)
     tasks = [asyncio.create_task(relay.guard(relay.pump())), asyncio.create_task(relay.guard(relay.read()))]
     try:
         await relay.send({"type": "ready", **EXPECTED_FORMAT, "language_code": language,
