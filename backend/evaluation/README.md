@@ -27,12 +27,14 @@ the scripted first ask, verifier latency, post-receive delay, and detector
 failures. Failed calls remain in all applicable metric denominators and are
 counted separately in `failure_calls`.
 
-The command below uses the merged detector and requires a configured
-AICredits verifier. It exits without producing results if the provider is
-unavailable. Run from the repository root and save the output outside the
-repository. A provider HTTP 401 stops the replay after its first call without
-writing a score report; correct the local key before retrying. The repo uses
-`uv` to provide the detector's `httpx` dependency:
+The command below uses the merged detector and the configured verifier
+(AICredits by default, or direct Gemini when selected). It exits without
+producing results if the provider is unavailable. Run from the repository root
+and save the output outside the repository. A provider HTTP 401 or Gemini
+quota-exhausted HTTP 429 stops the replay after its first affected call
+without writing a score report; restore provider access before retrying.
+Other per-call failures remain in the metric denominators. The repo uses `uv`
+to provide the detector's `httpx` dependency:
 
 ```bash
 uv run --no-project --with httpx python -m backend.evaluation.run_pilot \

@@ -28,13 +28,15 @@ class FakeModule:
             self.count += 1
             level = "red" if "request" in segment.text else (
                 "amber" if "caution" in segment.text else "none")
+            errors = {"auth": "analysis failed: AICredits HTTP 401: Invalid API Key",
+                      "quota": "analysis failed: Gemini HTTP 429: You exceeded your current quota",
+                      "rate": "analysis failed: Gemini HTTP 429: Too many requests",
+                      "fail": "scripted provider failure"}
             self.tasks.append(asyncio.create_task(self.emit({
                 "type": "risk", "level": level,
                 "emitted_at_ms": self.clock(), "analysed_through_ms": segment.received_ms,
-                "analysis": "unavailable" if self.verifier in {"fail", "auth"} else "ok",
-                "error": ("analysis failed: AICredits HTTP 401: Invalid API Key"
-                          if self.verifier == "auth" else
-                          "scripted provider failure" if self.verifier == "fail" else None),
+                "analysis": "unavailable" if self.verifier in errors else "ok",
+                "error": errors.get(self.verifier),
                 "latency_s": 0.002,
             })))
 
@@ -42,7 +44,8 @@ class FakeModule:
             return all(task.done() for task in self.tasks)
 
         def summary(self):
-            return {"status": "incomplete" if self.verifier in {"fail", "auth"} else "complete",
+            return {"status": "incomplete" if self.verifier in {"fail", "auth", "quota", "rate"}
+                    else "complete",
                     "analysed_segments": self.count}
 
         async def close(self):
@@ -134,6 +137,18 @@ class ReplayRunnerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "HTTP 401"):
             await run_development_set(transcripts, truth, "auth", FakeModule)
         self.assertEqual(len(FakeModule.seen), 1)
+
+    async def test_exhausted_quota_stops_but_transient_failures_remain_in_denominators(self):
+        transcripts = [call("first", "ordinary end"), call("second", "ordinary end")]
+        truth = [{"call_id": name, "label": "genuine", "first_ask_at_ms": None}
+                 for name in ("first", "second")]
+        with self.assertRaisesRegex(RuntimeError, "Gemini quota exhausted"):
+            await run_development_set(transcripts, truth, "quota", FakeModule)
+        self.assertEqual(len(FakeModule.seen), 1)
+        FakeModule.seen = []
+        report = await run_development_set(transcripts, truth, "rate", FakeModule)
+        self.assertEqual(report["failure_calls"], 2)
+        self.assertEqual(report["metrics"]["overall"]["false_alarm_rate"]["denominator"], 2)
 
     async def test_merged_detector_contract_with_fake_verifier(self):
         class Verifier:

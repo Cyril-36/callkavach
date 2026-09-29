@@ -17,6 +17,15 @@ from backend.evaluation.validate_multilingual_pilot import validate_pilot
 DATA_DIR = Path(__file__).parent / "data"
 
 
+def _fatal_provider_error(event):
+    error = str(event.get("error") or "")
+    if "AICredits HTTP 401" in error:
+        return "AICredits rejected the API key (HTTP 401)"
+    if "Gemini HTTP 429" in error and "exceeded your current quota" in error.lower():
+        return "Gemini quota exhausted (HTTP 429)"
+    return None
+
+
 def _rate(numerator, denominator):
     return {"numerator": numerator, "denominator": denominator,
             "rate": numerator / denominator if denominator else None}
@@ -56,14 +65,14 @@ async def replay_call(transcript, verifier, detector_module, *, finalize_timeout
     clock_ms = lambda: int((loop.time() - started) * 1000)
     events = []
     received = []
-    auth_failed = False
+    fatal_provider_failure = False
 
     async def emit(event):
-        nonlocal auth_failed
+        nonlocal fatal_provider_failure
         if event.get("type") == "risk":
             events.append(event)
-            if "AICredits HTTP 401" in str(event.get("error") or ""):
-                auth_failed = True
+            if _fatal_provider_error(event):
+                fatal_provider_failure = True
 
     detector = detector_module.SessionDetector(verifier, emit, clock=clock_ms)
     timed_out = False
@@ -72,7 +81,7 @@ async def replay_call(transcript, verifier, detector_module, *, finalize_timeout
             segment = detector_view(transcript, count)["segments"][-1]
             target_s = segment["end_at_ms"] / 1000
             await asyncio.sleep(max(0, target_s - (loop.time() - started)))
-            if auth_failed:
+            if fatal_provider_failure:
                 break
             at_ms = clock_ms()
             received.append(at_ms)
@@ -146,9 +155,10 @@ async def run_development_set(transcripts, truth, verifier, detector_module, *, 
     for index, transcript in enumerate(transcripts):
         result = await replay_call(transcript, verifier, detector_module,
                                    finalize_timeout_s=finalize_timeout_s)
-        if any("AICredits HTTP 401" in str(event.get("error") or "")
-               for event in result["risk_events"]):
-            raise RuntimeError("AICredits rejected the API key (HTTP 401); stopped the pilot replay")
+        fatal_error = next(filter(None, (_fatal_provider_error(event)
+                                         for event in result["risk_events"])), None)
+        if fatal_error:
+            raise RuntimeError(f"{fatal_error}; stopped the pilot replay")
         results.append(result)
         metric_inputs[index]["red_alert_at_ms"] = result["first_red_at_ms"]
     event_latencies = [round(event["latency_s"] * 1000) for result in results
