@@ -43,7 +43,7 @@ SCRIPT = {"seg1": [f("claimed_authority", "seg1", "बैंक से बोल
 async def test_replay_result_contract_and_emission_times():
     v = ScriptedVerifier(SCRIPT, delay=0.05)
     r = await replay_text_call(VIEW, v)
-    assert r["schema"] == SCHEMA and r["clock"] == "scripted_end_plus_measured_processing"
+    assert r["schema"] == SCHEMA and r["clock"] == "sequential_replay" and r["valid_for_live_timing_metrics"] is False
     assert r["final_level"] == "red" and r["analysis_status"] == "complete" and r["errors"] == []
     assert r["segment_count"] == 3 and r["calls"] == 3 and r["reported_cost"] == pytest.approx(0.3)
     # emitted = scripted segment end + measured processing (about 50 ms here), never before the segment ended
@@ -53,6 +53,8 @@ async def test_replay_result_contract_and_emission_times():
     assert r["first_warning_at_ms"] == r["events"][1]["emitted_at_ms"]
     assert r["first_red_at_ms"] == r["events"][2]["emitted_at_ms"]
     assert r["config"] == {"provider": "mock", "model": "mock-model", "call_timeout_s": 8.0}
+    assert [s["effective_receive_ms"] for s in r["segments"]] == [4000, 9000, 14000]  # gaps exceed processing
+    assert all(s["delayed_by_ms"] == 0 for s in r["segments"])
 
 
 @pytest.mark.asyncio
@@ -121,3 +123,26 @@ def test_harness_summarise_extracts_detection_fields():
     assert out["transcripts"] == [{"client_t": 13.4, "segment_id": "a", "text": "OTP"}]
     assert out["risk_events"][0]["tactics"] == {"credential_request": ["OTP"]}
     assert out["client_timing"]["stop_to_end_s"] == 2.5 and out["stopped"]["transcription"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_slow_earlier_analysis_never_rewinds_the_replay_clock():
+    """The first analysis (300 ms) finishes after the second and third segments' scripted ends (100 ms apart)."""
+    view = {"language": "hi", "segments": [
+        {"text": "मैं बैंक से बोल रहा हूँ", "start_at_ms": 0, "end_at_ms": 1000},
+        {"text": "आपका अकाउंट आज ब्लॉक हो जाएगा", "start_at_ms": 1000, "end_at_ms": 1100},
+        {"text": "अभी जो OTP आया है वो बताइए", "start_at_ms": 1100, "end_at_ms": 1200},
+    ]}
+    r = await replay_text_call(view, ScriptedVerifier(SCRIPT, delay=0.3))
+    emitted = [e["emitted_at_ms"] for e in r["events"]]
+    received = [s["effective_receive_ms"] for s in r["segments"]]
+    assert emitted == sorted(emitted) and len(set(emitted)) == 3, f"emission times went backwards: {emitted}"
+    assert received == sorted(received)
+    assert [s["scripted_end_at_ms"] for s in r["segments"]] == [1000, 1100, 1200], "scripted times preserved"
+    for i in (1, 2):  # each later segment is received no earlier than the previous emission
+        assert received[i] >= emitted[i - 1] and r["segments"][i]["delayed_by_ms"] > 0
+    assert received[0] == 1000 and r["segments"][0]["delayed_by_ms"] == 0
+    assert [e["analysed_through_ms"] for e in r["events"]] == received
+    for e, rec in zip(r["events"], received):
+        assert e["emitted_at_ms"] >= rec + 250, "emission includes the measured processing time"
+    assert r["first_red_at_ms"] == emitted[2] and r["first_red_at_ms"] > 1200

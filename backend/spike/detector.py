@@ -133,6 +133,7 @@ class SessionDetector:
         self.analysis = "ok"
         self.in_flight = False
         self._call_started_at = None  # loop time of the call in flight, for cut-off reporting
+        self._in_flight_ids = set()  # segments not yet analysed that the call in flight covers
         self._wake = asyncio.Event()
         self._last_call_at = None
         self._task = asyncio.get_running_loop().create_task(self._run())
@@ -179,6 +180,7 @@ class SessionDetector:
             # Segments not yet covered by a successful analysis (new ones, and earlier failures still in the
             # window) are marked new, so a retry asks the model to look at them again.
             unanalysed_ids = request_ids - self.done_ids
+            self._in_flight_ids = set(unanalysed_ids)
             self.last_call_rejected = 0
             try:
                 findings = await asyncio.wait_for(self.verifier.analyse(self._request(unanalysed_ids)),
@@ -207,6 +209,7 @@ class SessionDetector:
             finally:
                 self.in_flight = False
                 self._call_started_at = None
+                self._in_flight_ids = set()
             if self.pending:
                 self._wake.set()
 
@@ -324,4 +327,7 @@ class SessionDetector:
                 "calls": self.calls, "tactics": sorted(self.evidence), "rejected_findings": self.rejected_findings,
                 "in_flight_for_s": None if self._call_started_at is None else
                 round(asyncio.get_running_loop().time() - self._call_started_at, 3),
+                # Not yet analysed: covered by the call in flight, vs queued and never sent to the model.
+                "in_flight_segments": len(self._in_flight_ids) if self.in_flight else 0,
+                "queued_segments": len(self.pending),
                 "first_warning_at_ms": self.first_warning_at_ms, "first_red_at_ms": self.first_red_at_ms}

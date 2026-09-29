@@ -800,7 +800,9 @@ def test_analysis_slower_than_the_stop_deadline_is_reported_as_cut_off(client, m
     assert elapsed < 2.0, "Stop must not wait for the slow call beyond its deadline"
     assert stopped["transcription"] == "complete", "transcription completeness is independent of analysis"
     assert a["status"] == "pending" and a["cut_off_by_stop_deadline"] is True
-    assert a["unanalysed_segments"] == 1 and "Stop deadline" in a["error"] and a["in_flight_for_s"] >= 0.4
+    assert a["unanalysed_segments"] == 1 and a["in_flight_segments"] == 1 and a["queued_segments"] == 0
+    assert a["in_flight_for_s"] >= 0.4 and "Stop deadline" in a["error"]
+    assert "was cancelled, so its result is discarded" in a["error"] and "queued" not in a["error"]
     assert a["level"] == "none" and a["first_red_at_ms"] is None
     assert not [e for e in events if e["type"] == "risk"], "no result may be invented for the cut-off segment"
     wait_for_no_sessions()
@@ -903,3 +905,38 @@ def test_slow_analysis_mid_call_times_out_visibly_with_the_production_timeout_se
     risk = [e for e in events if e["type"] == "risk"][-1]
     assert risk["analysis"] == "unavailable" and "timed out after 0.2 s" in risk["error"]
     assert stopped["analysis"]["status"] == "incomplete"
+
+
+def test_stop_cut_off_of_queued_analysis_is_not_reported_as_an_in_flight_call(client, monkeypatch):
+    """The second segment waits for the 1 s minimum interval between calls; no call is in flight at the deadline."""
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.5)
+    use_verifier(monkeypatch)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("hello sir", "your account is blocked")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        wait = lambda: RecordingVerifier.instances[0].completed == 1
+        ws.send_bytes(b"\x00\x00" * 1600)
+        wait_until(wait, "first analysis did not complete")
+        ws.send_bytes(b"\x00\x00" * 1600)  # second segment arrives inside the minimum interval
+        stopped, _ = stop_and_collect(ws, frames=0)
+    a = stopped["analysis"]
+    assert a["cut_off_by_stop_deadline"] is True and a["status"] == "pending"
+    assert a["in_flight_segments"] == 0 and a["in_flight_for_s"] is None and a["queued_segments"] == 1
+    assert "1 segment(s) were still queued and were never sent for analysis" in a["error"]
+    assert "cancelled" not in a["error"] and "running" not in a["error"]
+    assert len(RecordingVerifier.instances[0].requests) == 1, "the queued segment never reached the model"
+
+
+def test_stop_cut_off_reports_both_an_in_flight_call_and_queued_segments(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.6)
+    use_verifier(monkeypatch, delay=5)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("hello sir", "your account is blocked")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        stopped, _ = stop_and_collect(ws, frames=2)
+    a = stopped["analysis"]
+    assert a["in_flight_segments"] == 1 and a["queued_segments"] == 1 and a["unanalysed_segments"] == 2
+    assert "covering 1 segment(s)" in a["error"] and "was cancelled" in a["error"]
+    assert "1 segment(s) were still queued" in a["error"]

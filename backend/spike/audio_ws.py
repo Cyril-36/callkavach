@@ -370,12 +370,18 @@ async def _receive_audio(ws: WebSocket, relay: _Relay) -> None:
 
 
 def _analysis_summary(relay: _Relay) -> dict:
-    """Detector summary for `stopped`, stating explicitly when the Stop deadline cut analysis short."""
+    """Detector summary for `stopped`, stating what the Stop deadline cut off: a call still in flight
+    (its result is discarded) and/or segments still queued (never sent to the model)."""
     summary = relay.detector.summary()
     summary["cut_off_by_stop_deadline"] = summary["status"] == "pending"
     if summary["cut_off_by_stop_deadline"]:
-        cut = (f"analysis was still running at the {FINALIZE_DEADLINE_S:g} s Stop deadline; "
-               f"{summary['unanalysed_segments']} segment(s) have no result")
+        parts = []
+        if summary["in_flight_segments"] or summary["in_flight_for_s"] is not None:
+            parts.append(f"an analysis call covering {summary['in_flight_segments']} segment(s) had been running for "
+                         f"{summary['in_flight_for_s']:.1f} s and was cancelled, so its result is discarded")
+        if summary["queued_segments"]:
+            parts.append(f"{summary['queued_segments']} segment(s) were still queued and were never sent for analysis")
+        cut = f"at the {FINALIZE_DEADLINE_S:g} s Stop deadline, " + " and ".join(parts)
         summary["error"] = f"{summary['error']}; {cut}" if summary["error"] else cut
     return summary
 

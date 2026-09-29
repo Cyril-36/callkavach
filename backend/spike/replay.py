@@ -1,16 +1,21 @@
-"""Text replay of one call through SessionDetector, for the offline evaluation runner.
+"""Sequential text replay of one call through SessionDetector: a functional check, NOT a timing benchmark.
 
 Input is exactly the output of backend/evaluation/detector_view.py (all finalized segments of a call):
   {"language": str, "segments": [{"text": str, "start_at_ms": int, "end_at_ms": int}, ...]}
 Any other key is rejected, so labels, family IDs, speaker labels and first-ask times cannot reach the
 detector. Segments get opaque IDs r1, r2, ... in order.
 
-Timing model ("scripted_end_plus_measured_processing"): segment i is fed at its scripted end_at_ms, and the
-detector clock then advances by real elapsed processing time, so an emitted_at_ms is the scripted time the
-segment finished plus the measured analysis latency. Replay is sequential: each segment is analysed before
-the next is fed, so it does not model analysis backlog when speech outpaces analysis, and there is no Stop
-deadline (live Stop behaviour is measured by e2e_harness.py instead). The per-call timeout, validation and
-risk policy are the production ones.
+What it is for: whether the production detector (same timeout, validation and risk policy) reaches a
+warning level on a call's text, with which evidence, and whether analysis completed. It is NOT valid for
+live timing or warned-before-first-ask metrics: it waits for each analysis to finish before feeding the next
+segment, so it never models analysis backlog, coalescing, or segments arriving while a call is in flight,
+and it has no Stop deadline. Time-based development metrics belong to the evaluation runner (PR #11), which
+schedules segments on a real monotonic timeline; live Stop behaviour is measured by e2e_harness.py.
+
+Clock ("sequential_replay"): segment i is received at max(its scripted end_at_ms, the virtual time when the
+previous analysis finished), and the clock then advances by real elapsed processing time. Virtual time
+never runs backwards: when an earlier analysis finishes after a later segment's scripted end, that segment
+is received late, and the result records both its scripted end and its effective receive time.
 
 The result format is documented in DETECTOR_CONTRACT.md (schema callkavach.detector_replay.v1).
 """
@@ -43,6 +48,7 @@ async def replay_text_call(view: dict, verifier, *, call_timeout_s: float = 8.0,
     loop = asyncio.get_running_loop()
     clock_state = {"base_ms": 0, "fed_at": loop.time()}
     events = []
+    timeline = []
 
     def clock() -> int:
         return int(clock_state["base_ms"] + (loop.time() - clock_state["fed_at"]) * 1000)
@@ -53,8 +59,12 @@ async def replay_text_call(view: dict, verifier, *, call_timeout_s: float = 8.0,
     detector = SessionDetector(verifier, emit, clock=clock, call_timeout_s=call_timeout_s, min_interval_s=0.0)
     try:
         for i, s in enumerate(view["segments"]):
-            clock_state["base_ms"], clock_state["fed_at"] = s["end_at_ms"], loop.time()
-            detector.add(Segment(f"r{i + 1}", s["text"], s["end_at_ms"]))
+            # Never earlier than "now": a slow previous analysis delays this segment instead of rewinding time.
+            received_ms = max(s["end_at_ms"], clock())
+            clock_state["base_ms"], clock_state["fed_at"] = received_ms, loop.time()
+            timeline.append({"replay_id": f"r{i + 1}", "scripted_end_at_ms": s["end_at_ms"],
+                             "effective_receive_ms": received_ms, "delayed_by_ms": received_ms - s["end_at_ms"]})
+            detector.add(Segment(f"r{i + 1}", s["text"], received_ms))
             deadline = loop.time() + idle_timeout_s
             while not detector.idle():
                 if loop.time() > deadline:
@@ -66,7 +76,8 @@ async def replay_text_call(view: dict, verifier, *, call_timeout_s: float = 8.0,
     costs = [e["verifier"]["cost"] for e in events if e.get("verifier") and e["verifier"].get("cost") is not None]
     return {
         "schema": SCHEMA,
-        "clock": "scripted_end_plus_measured_processing",
+        "clock": "sequential_replay",
+        "valid_for_live_timing_metrics": False,
         "language": view["language"],
         "segment_count": len(view["segments"]),
         "config": {"provider": getattr(verifier, "provider", None), "model": getattr(verifier, "model", None),
@@ -78,6 +89,7 @@ async def replay_text_call(view: dict, verifier, *, call_timeout_s: float = 8.0,
         "errors": sorted({e["error"] for e in events if e.get("error")}),
         "calls": summary["calls"],
         "reported_cost": round(sum(costs), 6) if costs else None,
+        "segments": timeline,
         "summary": summary,
         "events": events,
     }
