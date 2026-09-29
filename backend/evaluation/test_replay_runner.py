@@ -31,8 +31,10 @@ class FakeModule:
             self.tasks.append(asyncio.create_task(self.emit({
                 "type": "risk", "level": level,
                 "emitted_at_ms": self.clock(), "analysed_through_ms": segment.received_ms,
-                "analysis": "unavailable" if self.verifier == "fail" else "ok",
-                "error": "scripted provider failure" if self.verifier == "fail" else None,
+                "analysis": "unavailable" if self.verifier in {"fail", "auth"} else "ok",
+                "error": ("analysis failed: AICredits HTTP 401: Invalid API Key"
+                          if self.verifier == "auth" else
+                          "scripted provider failure" if self.verifier == "fail" else None),
                 "latency_s": 0.002,
             })))
 
@@ -40,7 +42,7 @@ class FakeModule:
             return all(task.done() for task in self.tasks)
 
         def summary(self):
-            return {"status": "incomplete" if self.verifier == "fail" else "complete",
+            return {"status": "incomplete" if self.verifier in {"fail", "auth"} else "complete",
                     "analysed_segments": self.count}
 
         async def close(self):
@@ -124,6 +126,14 @@ class ReplayRunnerTests(unittest.IsolatedAsyncioTestCase):
                          {"numerator": 1, "denominator": 1, "rate": 1.0})
         self.assertEqual(report["failure_calls"], 2)
         self.assertIn("RED", report["metric_definitions"]["false_alarm_rate"])
+
+    async def test_invalid_api_key_stops_before_replaying_remaining_calls(self):
+        transcripts = [call("first", "ordinary end"), call("second", "ordinary end")]
+        truth = [{"call_id": name, "label": "genuine", "first_ask_at_ms": None}
+                 for name in ("first", "second")]
+        with self.assertRaisesRegex(RuntimeError, "HTTP 401"):
+            await run_development_set(transcripts, truth, "auth", FakeModule)
+        self.assertEqual(len(FakeModule.seen), 1)
 
     async def test_merged_detector_contract_with_fake_verifier(self):
         class Verifier:

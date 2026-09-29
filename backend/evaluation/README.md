@@ -30,7 +30,9 @@ counted separately in `failure_calls`.
 The command below uses the merged detector and requires a configured
 AICredits verifier. It exits without producing results if the provider is
 unavailable. Run from the repository root and save the output outside the
-repository. The repo uses `uv` to provide the detector's `httpx` dependency:
+repository. A provider HTTP 401 stops the replay after its first call without
+writing a score report; correct the local key before retrying. The repo uses
+`uv` to provide the detector's `httpx` dependency:
 
 ```bash
 uv run --no-project --with httpx python -m backend.evaluation.run_pilot \

@@ -56,10 +56,14 @@ async def replay_call(transcript, verifier, detector_module, *, finalize_timeout
     clock_ms = lambda: int((loop.time() - started) * 1000)
     events = []
     received = []
+    auth_failed = False
 
     async def emit(event):
+        nonlocal auth_failed
         if event.get("type") == "risk":
             events.append(event)
+            if "AICredits HTTP 401" in str(event.get("error") or ""):
+                auth_failed = True
 
     detector = detector_module.SessionDetector(verifier, emit, clock=clock_ms)
     timed_out = False
@@ -68,6 +72,8 @@ async def replay_call(transcript, verifier, detector_module, *, finalize_timeout
             segment = detector_view(transcript, count)["segments"][-1]
             target_s = segment["end_at_ms"] / 1000
             await asyncio.sleep(max(0, target_s - (loop.time() - started)))
+            if auth_failed:
+                break
             at_ms = clock_ms()
             received.append(at_ms)
             detector.add(detector_module.Segment(
@@ -140,6 +146,9 @@ async def run_development_set(transcripts, truth, verifier, detector_module, *, 
     for index, transcript in enumerate(transcripts):
         result = await replay_call(transcript, verifier, detector_module,
                                    finalize_timeout_s=finalize_timeout_s)
+        if any("AICredits HTTP 401" in str(event.get("error") or "")
+               for event in result["risk_events"]):
+            raise RuntimeError("AICredits rejected the API key (HTTP 401); stopped the pilot replay")
         results.append(result)
         metric_inputs[index]["red_alert_at_ms"] = result["first_red_at_ms"]
     event_latencies = [round(event["latency_s"] * 1000) for result in results
