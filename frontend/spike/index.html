@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CallKavach mic spike</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 24px; max-width: 560px; }
+    button { font-size: 18px; padding: 10px 24px; margin-right: 8px; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+    dt { color: #555; }
+    #provisional { color: #777; font-style: italic; min-height: 1.4em; }
+    #transcript li { margin: 6px 0; }
+    #transcript li.gap { color: #a15c00; }
+  </style>
+</head>
+<body>
+  <h1>Microphone capture spike</h1>
+  <p><label>Language
+    <select id="language">
+      <option value="te-IN">Telugu (+ English)</option>
+      <option value="hi-IN">Hindi (+ English)</option>
+      <option value="en-IN">English (India)</option>
+    </select></label></p>
+  <button id="start">Start</button>
+  <button id="stop" disabled>Stop</button>
+  <dl>
+    <dt>Status</dt><dd id="status">Idle</dd>
+    <dt>Microphone rate</dt><dd id="rate">–</dd>
+    <dt>Captured</dt><dd id="duration">–</dd>
+    <dt>Output samples</dt><dd id="outCount">–</dd>
+    <dt>Browser sent</dt><dd id="sent">–</dd>
+    <dt>Server received</dt><dd id="server">–</dd>
+  </dl>
+  <h2>Transcript</h2>
+  <p id="provisional"></p>
+  <ol id="transcript"></ol>
+  <script type="module" src="./capture.js"></script>
+</body>
+</html>

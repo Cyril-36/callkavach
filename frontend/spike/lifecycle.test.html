@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Capture lifecycle tests</title>
+  <style>body { font: 14px ui-monospace, monospace; margin: 24px; } .hidden { display: none; }</style>
+</head>
+<body>
+  <h1>Capture lifecycle tests</h1>
+  <p>Uses a synthetic microphone (oscillator); no real audio is captured.</p>
+  <pre id="results">Running…</pre>
+  <div class="hidden">
+    <button id="start">Start</button><button id="stop" disabled>Stop</button>
+    <span id="status">Idle</span><span id="rate"></span><span id="duration"></span><span id="outCount"></span><span id="sent"></span><span id="server"></span>
+    <select id="language"><option value="te-IN">te-IN</option></select><p id="provisional"></p><ol id="transcript"></ol>
+  </div>
+  <script type="module" src="./lifecycle.browser.js"></script>
+</body>
+</html>
