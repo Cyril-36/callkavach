@@ -1,13 +1,43 @@
 # Offline evaluation
 
-This standard-library-only module evaluates labelled call records and provides a
-simple keyword baseline over finalized transcript segments. It makes no API calls.
+The metrics, keyword baseline and validators use only Python's standard library.
+The optional replay runner invokes the separately configured live detector,
+which may call an external verifier.
 
 Run the checks from the repository root:
 
 ```bash
 python3 -m unittest discover -s backend/evaluation -p 'test_*.py'
 ```
+
+## Development replay runner
+
+`replay_runner.py` schedules each **finalized** pilot segment at its scripted
+end time. At each step, `detector_view()` supplies only the visible prefix;
+the runner creates an opaque per-session segment ID and a real monotonic
+receive time for the detector. It captures the detector's actual emitted
+`risk` events, then joins the separate ground truth after that call closes.
+The first `red` event's `emitted_at_ms` becomes `red_alert_at_ms` for the
+existing metrics. Missing alerts stay null. The report includes genuine false
+alarms, scam recall, red warning before the scripted first ask, verifier latency,
+post-receive delay, and detector failures. Failed calls remain in metric
+denominators and are counted separately.
+
+The command below requires the main implementer's detector (PR #10) to be
+merged and a configured AICredits verifier. Until then it exits without
+producing results. Run from the repository root and save the output outside
+the repository:
+
+```bash
+python3 -m backend.evaluation.run_pilot --output /tmp/callkavach-dev-replay.json
+```
+
+This is a **synthetic text replay**. Scripted segment and first-ask times are
+not measured speech or STT timing. `emitted_at_ms` and the processing delays
+come from the detector's actual replay clock; they are not audio-to-warning
+latency. Independent language review of these development calls is pending,
+so any tuning or score from them is provisional. Never feed the sealed final
+families to this development runner or tune after seeing their results.
 
 ## Example
 
@@ -145,7 +175,7 @@ for count in range(1, len(transcript["segments"]) + 1):
 The projection includes only `language` and ordered segment `text`,
 `start_at_ms`, and `end_at_ms`. It excludes call IDs, speakers, labels,
 lineage, first asks and future turns. Never send raw fixtures or ground truth
-to Gemini. Segment-start first-ask times are coarse scripted annotations, not
+to a verifier. Segment-start first-ask times are coarse scripted annotations, not
 measured speech or detector alert times. Only an actual detector run may
 produce alert timestamps.
 
