@@ -40,6 +40,10 @@ _PRESSURE = {"claimed_authority", "threat_or_fabricated_crime", "secrecy_or_isol
              "money_transfer_request", "personal_id_request"}
 _COERCION = {"claimed_authority", "threat_or_fabricated_crime", "secrecy_or_isolation"}
 LEVELS = ("none", "amber", "red")
+STATUSES = ("present", "negated", "benign")
+_FINDING_KEYS = {"tactic", "status", "segment_id", "quote"}
+_OPTIONAL_KEYS = {"reason"}
+MAX_QUOTE_CHARS = 300
 
 # Four or more digits, optionally separated by single spaces or hyphens ("4821", "4 8 2 1", "1234-5678").
 # \d matches Unicode digits, so Devanagari and Telugu numerals are masked too. Spelled-out numbers are not.
@@ -93,16 +97,27 @@ class SessionDetector:
     """One per call session. `add()` finalized segments in order; results arrive through `emit`."""
 
     def __init__(self, verifier, emit, *, max_calls=60, min_interval_s=1.0, call_timeout_s=8.0,
-                 window_segments=12, window_chars=4000, max_quotes_per_tactic=3, max_pending=50):
+                 window_segments=12, window_chars=4000, max_quotes_per_tactic=3, max_pending=50, clock=None):
         self.verifier, self.emit = verifier, emit
+        loop = asyncio.get_running_loop()
+        created = loop.time()
+        # Milliseconds since the session started, on the server's monotonic clock. Risk events are stamped
+        # with this at the moment they are emitted, so evaluation measures real alert emission times.
+        self.clock = clock or (lambda: int((loop.time() - created) * 1000))
         self.max_calls, self.min_interval_s, self.call_timeout_s = max_calls, min_interval_s, call_timeout_s
         self.window_segments, self.window_chars = window_segments, window_chars
         self.max_quotes_per_tactic, self.max_pending = max_quotes_per_tactic, max_pending
-        self.window = deque()  # (segment_id, redacted text), oldest first
+        # (alias, segment_id, redacted text, received_ms), oldest first. The verifier sees only the short alias
+        # ("seg1", "seg2", ...): provider segment IDs are long and a model mis-copied one in a live test.
+        self.window = deque()
+        self._next_alias = 1
         self.pending = deque()
         self.evidence = {}  # tactic -> [_Quote]
         self.level, self.level_reason = "none", None
         self.calls = self.analysed = self.rejected_findings = 0
+        self.first_warning_at_ms = self.first_red_at_ms = None  # emission times of the first amber/red
+        self.analysed_through_ms = None  # receive time of the newest segment covered by a successful analysis
+        self.last_call_rejected = 0
         self.done_ids = set()  # window segments included in a successful analysis
         self.lost = 0  # segments that left the window, or overflowed the queue, without being analysed
         self.last_error = None
@@ -150,10 +165,11 @@ class SessionDetector:
             self.calls += 1
             self._last_call_at = loop.time()
             started = time.perf_counter()
-            request_ids = {sid for sid, _ in self.window}
+            request_ids = {sid for _, sid, _, _ in self.window}
             try:
                 findings = await asyncio.wait_for(self.verifier.analyse(self._request({s.segment_id for s in new})),
                                                   self.call_timeout_s)
+                accepted, rejected = self._validate(findings)  # raises if the reply is not a findings list
             except asyncio.TimeoutError:
                 await self._fail(f"analysis timed out after {self.call_timeout_s:g} s")
             except Exception as e:  # VerifierError, transport errors, malformed replies
@@ -161,8 +177,15 @@ class SessionDetector:
             else:
                 self.analysed += len(request_ids - self.done_ids)
                 self.done_ids |= request_ids  # a retry covers earlier failed segments still in the window
-                self._apply(findings)
-                self.analysis, self.last_error = "ok", None
+                self.analysed_through_ms = max(ms for _, _, _, ms in self.window)
+                self._apply(accepted)
+                self.last_call_rejected = len(rejected)
+                self.rejected_findings += len(rejected)
+                if rejected:  # some output could not be verified: the result may be missing evidence
+                    self.analysis = "partial"
+                    self.last_error = f"{len(rejected)} finding(s) rejected: " + "; ".join(rejected[:3])
+                else:
+                    self.analysis, self.last_error = "ok", None
                 await self.emit(self._risk_event(latency_s=time.perf_counter() - started))
             finally:
                 self.in_flight = False
@@ -170,10 +193,11 @@ class SessionDetector:
                 self._wake.set()
 
     def _push_window(self, seg: Segment) -> None:
-        self.window.append((seg.segment_id, redact(seg.text)))
+        self.window.append((f"seg{self._next_alias}", seg.segment_id, redact(seg.text), seg.received_ms))
+        self._next_alias += 1
         while len(self.window) > self.window_segments or (
-                len(self.window) > 1 and sum(len(t) for _, t in self.window) > self.window_chars):
-            sid, _ = self.window.popleft()
+                len(self.window) > 1 and sum(len(t) for _, _, t, _ in self.window) > self.window_chars):
+            _, sid, _, _ = self.window.popleft()
             if sid in self.done_ids:
                 self.done_ids.discard(sid)
             else:
@@ -183,25 +207,55 @@ class SessionDetector:
         """The only data the verifier sees: redacted recent segments and previously confirmed evidence."""
         return {
             "confirmed_evidence": [{"tactic": t, "quote": q.quote} for t, qs in self.evidence.items() for q in qs],
-            "segments": [{"segment_id": sid, "text": text, "new": sid in new_ids} for sid, text in self.window],
+            "segments": [{"segment_id": alias, "text": text, "new": sid in new_ids}
+                         for alias, sid, text, _ in self.window],
         }
 
-    def _apply(self, findings) -> None:
-        window = {sid: _norm(text) for sid, text in self.window}
-        for f in findings if isinstance(findings, list) else []:
-            tactic, status = f.get("tactic"), f.get("status")
-            sid, quote = str(f.get("segment_id", "")), str(f.get("quote", "")).strip()
-            if status != "present":
-                continue  # negated, benign or reported speech: not evidence against the call
-            if tactic not in TACTICS or sid not in window or not quote or len(quote) > 300 \
-                    or _norm(quote) not in window[sid]:
-                self.rejected_findings += 1  # unverifiable: unknown tactic, wrong segment, or quote not found
+    def _validate(self, findings) -> tuple:
+        """Strictly check every finding. Returns (accepted present findings, rejection reasons).
+
+        A reply that is not a list of objects is a failed analysis. Each finding needs exactly the
+        fields tactic, status, segment_id and quote (reason optional), all strings; a known tactic and
+        status; a segment from this request; and a non-empty quote of at most MAX_QUOTE_CHARS that occurs
+        in that segment. Negated and benign findings are validated too, but only present ones are evidence.
+        """
+        if not isinstance(findings, list):
+            raise VerifierError("reply is not a list of findings")
+        window = {alias: (sid, _norm(text)) for alias, sid, text, _ in self.window}
+        accepted, rejected = [], []
+        for i, f in enumerate(findings):
+            if not isinstance(f, dict):
+                rejected.append(f"#{i} is not an object")
                 continue
-            quotes = self.evidence.setdefault(tactic, [])
-            if any(q.segment_id == sid and _norm(q.quote) == _norm(quote) for q in quotes):
+            keys = set(f)
+            if not _FINDING_KEYS <= keys or keys - _FINDING_KEYS - _OPTIONAL_KEYS:
+                rejected.append(f"#{i} has fields {sorted(keys)}")
+                continue
+            if not all(isinstance(f[k], str) for k in keys):
+                rejected.append(f"#{i} has a non-string field")
+                continue
+            tactic, status, sid, quote = f["tactic"], f["status"], f["segment_id"], f["quote"].strip()
+            if tactic not in TACTICS:
+                rejected.append(f"#{i} unknown tactic {tactic[:40]!r}")
+            elif status not in STATUSES:
+                rejected.append(f"#{i} unknown status {status[:40]!r}")
+            elif sid not in window:
+                rejected.append(f"#{i} segment {sid[:40]!r} not in this request")
+            elif not quote or len(quote) > MAX_QUOTE_CHARS:
+                rejected.append(f"#{i} empty or over-long quote")
+            elif _norm(quote) not in window[sid][1]:
+                rejected.append(f"#{i} quote not found in {sid[:40]}")
+            elif status == "present":  # map the alias back to the real segment ID
+                accepted.append({"tactic": tactic, "segment_id": window[sid][0], "quote": quote})
+        return accepted, rejected
+
+    def _apply(self, accepted: list) -> None:
+        for f in accepted:
+            quotes = self.evidence.setdefault(f["tactic"], [])
+            if any(q.segment_id == f["segment_id"] and _norm(q.quote) == _norm(f["quote"]) for q in quotes):
                 continue
             if len(quotes) < self.max_quotes_per_tactic:
-                quotes.append(_Quote(sid, quote))
+                quotes.append(_Quote(f["segment_id"], f["quote"]))
         level, reason = risk_level(set(self.evidence))
         if LEVELS.index(level) > LEVELS.index(self.level):  # warnings are never silently cleared
             self.level, self.level_reason = level, reason
@@ -211,11 +265,21 @@ class SessionDetector:
         await self.emit(self._risk_event())
 
     def unanalysed(self) -> int:
-        return self.lost + len({sid for sid, _ in self.window} - self.done_ids) + len(self.pending)
+        return self.lost + len({sid for _, sid, _, _ in self.window} - self.done_ids) + len(self.pending)
 
     def _risk_event(self, latency_s=None) -> dict:
+        """Built immediately before it is emitted, so emitted_at_ms is the actual server emission time."""
+        now = self.clock()
+        if self.level in ("amber", "red") and self.first_warning_at_ms is None:
+            self.first_warning_at_ms = now
+        if self.level == "red" and self.first_red_at_ms is None:
+            self.first_red_at_ms = now
         return {
             "type": "risk",
+            "emitted_at_ms": now,
+            "first_warning_at_ms": self.first_warning_at_ms,
+            "first_red_at_ms": self.first_red_at_ms,
+            "analysed_through_ms": self.analysed_through_ms,
             "level": self.level,  # "none" means no warning yet, never "safe"
             "reason": self.level_reason,
             "analysis": self.analysis,
@@ -225,17 +289,20 @@ class SessionDetector:
             "analysed_segments": self.analysed,
             "unanalysed_segments": self.unanalysed(),
             "calls": self.calls,
+            "rejected_findings": self.last_call_rejected,
             "latency_s": None if latency_s is None else round(latency_s, 3),
+            "verifier": getattr(self.verifier, "last_call", None),
         }
 
     def summary(self) -> dict:
         """State for the session's final report."""
         if not self.idle():
             status = "pending"
-        elif self.analysis != "ok" or self.unanalysed():
+        elif self.analysis != "ok" or self.unanalysed() or self.rejected_findings:
             status = "incomplete"
         else:
             status = "complete"
         return {"level": self.level, "reason": self.level_reason, "status": status, "error": self.last_error,
                 "analysed_segments": self.analysed, "unanalysed_segments": self.unanalysed(),
-                "calls": self.calls, "tactics": sorted(self.evidence)}
+                "calls": self.calls, "tactics": sorted(self.evidence), "rejected_findings": self.rejected_findings,
+                "first_warning_at_ms": self.first_warning_at_ms, "first_red_at_ms": self.first_red_at_ms}

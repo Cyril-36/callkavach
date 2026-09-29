@@ -34,7 +34,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
 from detector import Segment, SessionDetector
-from gemini_verifier import make_verifier
+from verifier_config import make_verifier
 from stt_provider import ProviderError, default_connector
 
 SAMPLE_RATE = 16000
@@ -297,8 +297,10 @@ async def _session(ws: WebSocket) -> None:
 
     relay = _Relay(ws, provider)
     verifier, relay.detector_unavailable = verifier_factory()
-    if verifier:
-        relay.detector = SessionDetector(verifier, relay.send)
+    if verifier:  # same session clock as segment receive times, so alert emission times are comparable
+        loop = asyncio.get_running_loop()
+        relay.detector = SessionDetector(verifier, relay.send,
+                                         clock=lambda: int((loop.time() - relay.started_at) * 1000))
     tasks = [asyncio.create_task(relay.guard(relay.pump())), asyncio.create_task(relay.guard(relay.read()))]
     try:
         await relay.send({"type": "ready", **EXPECTED_FORMAT, "language_code": language,

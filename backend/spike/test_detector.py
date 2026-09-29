@@ -5,6 +5,7 @@ backend/evaluation data, and no evaluation ground truth is used.
 """
 import asyncio
 import json
+import re
 
 import httpx
 import pytest
@@ -29,8 +30,15 @@ class MockVerifier:
         return self.respond(request)
 
 
+def alias(segment_id):
+    """The verifier sees short aliases: the n-th segment added (s0, s1, ...) is "seg{n+1}"."""
+    m = re.fullmatch(r"s(\d+)", segment_id)
+    return f"seg{int(m.group(1)) + 1}" if m else segment_id
+
+
 def finding(tactic, segment_id, quote, status="present"):
-    return {"tactic": tactic, "status": status, "segment_id": segment_id, "quote": quote, "reason": "test"}
+    """A finding as the model would return it, naming the segment by the alias it was shown."""
+    return {"tactic": tactic, "status": status, "segment_id": alias(segment_id), "quote": quote, "reason": "test"}
 
 
 def seg(i, text):
@@ -78,7 +86,7 @@ async def test_verifier_sees_no_labels_speakers_timestamps_or_future_segments():
         blob = json.dumps(request)
         for forbidden in ("speaker", "caller", "label", "scam", "family", "first_ask", "36000", "received_ms"):
             assert forbidden not in blob, f"{forbidden!r} reached the verifier"
-        assert [s["segment_id"] for s in request["segments"]] == [f"s{i}" for i in range(n + 1)], "future leaked"
+        assert [s["segment_id"] for s in request["segments"]] == [f"seg{i + 1}" for i in range(n + 1)], "future leaked"
         assert set(request) == {"confirmed_evidence", "segments"}
 
 
@@ -86,7 +94,7 @@ async def test_verifier_sees_no_labels_speakers_timestamps_or_future_segments():
 async def test_segments_are_analysed_in_arrival_order_and_marked_new():
     v = MockVerifier()
     await run(v, [seg(i, f"line {i}") for i in range(4)], gap=0.05)
-    assert [[s["segment_id"] for s in r["segments"] if s["new"]] for r in v.requests] == [["s0"], ["s1"], ["s2"], ["s3"]]
+    assert [[s["segment_id"] for s in r["segments"] if s["new"]] for r in v.requests] == [["seg1"], ["seg2"], ["seg3"], ["seg4"]]
 
 
 @pytest.mark.asyncio
@@ -134,7 +142,9 @@ async def test_quotes_must_occur_in_the_named_segment():
         ]
     d, events = await run(MockVerifier(respond), [seg(0, "This is Inspector Sharma, Mumbai Cyber Crime.")])
     assert [t["tactic"] for t in events[-1]["tactics"]] == ["claimed_authority"]
-    assert d.rejected_findings == 4
+    assert d.rejected_findings == 4 and events[-1]["rejected_findings"] == 4
+    assert events[-1]["analysis"] == "partial", "unverifiable output must not be reported as a clean analysis"
+    assert d.summary()["status"] == "incomplete"
 
 
 @pytest.mark.asyncio
@@ -174,10 +184,10 @@ async def test_digital_arrest_warns_before_the_money_ask_and_never_downgrades():
              "A parcel in your name has drugs and five fake passports.",
              "Tell no one. Stay on the call. You are under digital arrest.",
              "okay"]
-    script = {"s0": [finding("claimed_authority", "s0", "Inspector Sharma, Mumbai Cyber Crime")],
-              "s1": [finding("threat_or_fabricated_crime", "s1", "drugs and five fake passports")],
-              "s2": [finding("secrecy_or_isolation", "s2", "Tell no one. Stay on the call.")],
-              "s3": []}
+    script = {"seg1": [finding("claimed_authority", "s0", "Inspector Sharma, Mumbai Cyber Crime")],
+              "seg2": [finding("threat_or_fabricated_crime", "s1", "drugs and five fake passports")],
+              "seg3": [finding("secrecy_or_isolation", "s2", "Tell no one. Stay on the call.")],
+              "seg4": []}
 
     def respond(request):
         return script[[s["segment_id"] for s in request["segments"] if s["new"]][-1]]
@@ -204,7 +214,7 @@ async def test_early_evidence_survives_the_context_window():
     v = MockVerifier(respond)
     _, events = await run(v, [seg(i, t) for i, t in enumerate(lines)], gap=0.03, window_segments=4)
     assert all(len(r["segments"]) <= 4 for r in v.requests)
-    assert "s0" not in [s["segment_id"] for s in v.requests[-1]["segments"]]
+    assert "seg1" not in [s["segment_id"] for s in v.requests[-1]["segments"]]
     assert {"tactic": "claimed_authority", "quote": "Inspector Rao"} in v.requests[-1]["confirmed_evidence"]
     assert events[-1]["level"] == "red"
 
@@ -377,9 +387,234 @@ async def test_gemini_transport_error_raises_verifier_error():
         await gemini_client(handler).analyse({"confirmed_evidence": [], "segments": []})
 
 
-def test_missing_configuration_makes_detector_unavailable(monkeypatch):
-    import gemini_verifier
-    monkeypatch.setattr(gemini_verifier, "_config", lambda name: None)
-    assert gemini_verifier.make_verifier() == (None, "GEMINI_API_KEY is not configured on the server")
-    monkeypatch.setattr(gemini_verifier, "_config", lambda name: "k" if name == "GEMINI_API_KEY" else None)
-    assert gemini_verifier.make_verifier() == (None, "GEMINI_MODEL is not configured on the server")
+# --- AICredits adapter (mock HTTP transport) ---
+
+def aicredits_client(handler, model="gemini-2.5-flash"):
+    from aicredits_verifier import AICreditsVerifier
+    return AICreditsVerifier("test-key", model, client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+
+def chat_reply(content, model="gemini-2.5-flash", finish="stop", cost=0.0123):
+    return httpx.Response(200, json={
+        "id": "x", "object": "chat.completion", "model": model,
+        "choices": [{"index": 0, "finish_reason": finish, "message": {"role": "assistant", "content": content}}],
+        "usage": {"prompt_tokens": 300, "completion_tokens": 40, "total_tokens": 340, "cost": cost, "latency_ms": 2100}})
+
+
+REQ = {"confirmed_evidence": [], "segments": [{"segment_id": "s0", "text": "Inspector", "new": True}]}
+
+
+@pytest.mark.asyncio
+async def test_aicredits_request_shape_and_parsing():
+    seen = {}
+
+    def handler(request):
+        seen["url"], seen["headers"], seen["body"] = str(request.url), request.headers, json.loads(request.content)
+        return chat_reply(json.dumps({"findings": [finding("claimed_authority", "s0", "Inspector")]}))
+    v = aicredits_client(handler)
+    result = await v.analyse(REQ)
+    assert result[0]["tactic"] == "claimed_authority"
+    assert seen["url"] == "https://api.aicredits.in/v1/chat/completions"
+    assert seen["headers"]["authorization"] == "Bearer test-key" and "test-key" not in seen["url"]
+    body = seen["body"]
+    assert body["model"] == "gemini-2.5-flash" and body["temperature"] == 0
+    assert body["response_format"] == {"type": "json_object"} and body["max_tokens"] >= 2048
+    assert body["messages"][0] == {"role": "system", "content": SYSTEM_PROMPT}
+    assert json.loads(body["messages"][1]["content"]) == REQ
+    assert v.last_call == {"provider": "aicredits", "requested_model": "gemini-2.5-flash",
+                           "returned_model": "gemini-2.5-flash", "finish_reason": "stop", "prompt_tokens": 300,
+                           "completion_tokens": 40, "cost": 0.0123, "gateway_latency_ms": 2100}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response,message", [
+    (chat_reply('{"findings": []}', model="google/gemini-2.5-flash"), "not the configured"),  # no silent swap
+    (chat_reply('{"findings": []}', model="gemini-2.5-flash-lite"), "not the configured"),
+    (chat_reply(None, finish="length"), "stopped early: length"),
+    (chat_reply('{"findings": []}', finish="content_filter"), "stopped early"),
+    (chat_reply("```json\n{\"findings\": []}\n```"), "not the findings JSON"),  # markdown is not accepted
+    (chat_reply('{"results": []}'), "not the findings JSON"),
+    (chat_reply(None), "not the findings JSON"),
+    (httpx.Response(401, json={"error": {"message": "Invalid API key", "type": "auth", "code": 401}}), "HTTP 401: Invalid API key"),
+    (httpx.Response(402, json={"error": {"message": "Insufficient credits"}}), "HTTP 402: Insufficient credits"),
+    (httpx.Response(503, text="bad gateway"), "HTTP 503"),
+    (httpx.Response(200, text="not json"), "unusable"),
+    (httpx.Response(200, json={"model": "gemini-2.5-flash", "choices": []}), "unusable"),
+])
+async def test_aicredits_errors_raise_verifier_error(response, message):
+    with pytest.raises(VerifierError, match=message):
+        await aicredits_client(lambda request: response).analyse(REQ)
+
+
+@pytest.mark.asyncio
+async def test_aicredits_transport_error_raises_verifier_error():
+    def handler(request):
+        raise httpx.ReadTimeout("slow")
+    with pytest.raises(VerifierError, match="request failed"):
+        await aicredits_client(handler).analyse(REQ)
+
+
+@pytest.mark.asyncio
+async def test_aicredits_findings_still_pass_strict_detector_validation():
+    """The adapter returns findings unvalidated; the detector's strict checks still apply."""
+    def handler(request):
+        return chat_reply(json.dumps({"findings": [finding("credential_request", "s0", "invented quote")]}))
+    d, events = await run(aicredits_client(handler), [seg(0, "hello sir")])
+    assert events[-1]["analysis"] == "partial" and events[-1]["level"] == "none"
+    assert events[-1]["verifier"]["returned_model"] == "gemini-2.5-flash" and events[-1]["verifier"]["cost"] == 0.0123
+
+
+# --- provider selection (no fallback) ---
+
+def configure(monkeypatch, **values):
+    import verifier_config
+    monkeypatch.setattr(verifier_config, "_config", lambda name: values.get(name))
+    return verifier_config.make_verifier
+
+
+def test_aicredits_is_the_default_provider(monkeypatch):
+    from aicredits_verifier import AICreditsVerifier
+    verifier, why = configure(monkeypatch, AICREDITS_API_KEY="k", AICREDITS_MODEL="gemini-2.5-flash")()
+    assert isinstance(verifier, AICreditsVerifier) and why is None and verifier.model == "gemini-2.5-flash"
+
+
+def test_gemini_is_selectable_explicitly(monkeypatch):
+    from gemini_verifier import GeminiVerifier
+    verifier, why = configure(monkeypatch, LLM_PROVIDER="gemini", GEMINI_API_KEY="g", GEMINI_MODEL="m")()
+    assert isinstance(verifier, GeminiVerifier) and why is None
+
+
+@pytest.mark.parametrize("values,reason", [
+    ({}, "AICREDITS_API_KEY is not configured"),
+    ({"AICREDITS_API_KEY": "k"}, "AICREDITS_MODEL is not configured"),
+    # No fallback: Gemini is fully configured but not selected, so AICredits stays unavailable.
+    ({"AICREDITS_MODEL": "gemini-2.5-flash", "GEMINI_API_KEY": "g", "GEMINI_MODEL": "m"},
+     "AICREDITS_API_KEY is not configured"),
+    ({"LLM_PROVIDER": "gemini", "AICREDITS_API_KEY": "k", "AICREDITS_MODEL": "x"}, "GEMINI_API_KEY is not configured"),
+    ({"LLM_PROVIDER": "openai"}, "not supported"),
+    ({"LLM_PROVIDER": "off", "AICREDITS_API_KEY": "k", "AICREDITS_MODEL": "gemini-2.5-flash"}, "switched off"),
+])
+def test_misconfigured_provider_is_unavailable_without_fallback(monkeypatch, values, reason):
+    verifier, why = configure(monkeypatch, **values)()
+    assert verifier is None and reason in why
+
+
+# --- strict finding validation ---
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reply", [{"findings": []}, "[]", None, 3])
+async def test_reply_that_is_not_a_findings_list_is_a_failed_analysis(reply):
+    d, events = await run(MockVerifier(lambda request: reply), [seg(0, "hello")])
+    assert events[-1]["analysis"] == "unavailable" and "not a list" in events[-1]["error"]
+    assert d.analysed == 0 and d.unanalysed() == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad", [
+    "not an object",
+    {"tactic": "credential_request", "status": "present", "segment_id": "seg1"},  # missing quote
+    {**finding("credential_request", "s0", "the OTP"), "confidence": "high"},  # unexpected field
+    {**finding("credential_request", "s0", "the OTP"), "segment_id": 0},  # non-string
+    finding("credential_request", "s0", "the OTP", status="maybe"),  # unknown status
+    finding("credential_request", "s0", "x" * 301),  # over-long quote
+    finding("credential_request", "s0", "not in the text", status="negated"),  # negated is validated too
+])
+async def test_malformed_findings_are_rejected_and_reported(bad):
+    good = finding("urgency_pressure", "s0", "right now")
+    d, events = await run(MockVerifier(lambda request: [good, bad]), [seg(0, "tell me the OTP right now")])
+    e = events[-1]
+    assert [t["tactic"] for t in e["tactics"]] == ["urgency_pressure"]
+    assert e["analysis"] == "partial" and e["rejected_findings"] == 1 and "rejected" in e["error"]
+    assert e["level"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_clean_reply_is_ok_after_an_earlier_partial_one():
+    replies = iter([[finding("urgency_pressure", "s9", "now")], []])
+    d, events = await run(MockVerifier(lambda request: next(replies)), [seg(0, "a"), seg(1, "b")], gap=0.05)
+    assert [e["analysis"] for e in events] == ["partial", "ok"]
+    assert d.summary()["status"] == "incomplete", "the session still had unverifiable output"
+
+
+# --- server emission timestamps ---
+
+@pytest.mark.asyncio
+async def test_risk_events_carry_actual_emission_times():
+    now = {"ms": 0}
+    script = {"seg1": [finding("claimed_authority", "s0", "Inspector")],
+              "seg2": [finding("urgency_pressure", "s1", "right now")],
+              "seg3": [finding("credential_request", "s2", "the OTP")],
+              "seg4": []}
+
+    class Clocked(MockVerifier):
+        async def analyse(self, request):
+            now["ms"] += 700  # the analysis itself takes time on the server clock
+            return await super().analyse(request)
+
+    def respond(request):
+        return script[[s["segment_id"] for s in request["segments"] if s["new"]][-1]]
+    segments = [Segment("s0", "Inspector calling", 1000), Segment("s1", "do it right now", 5000),
+                Segment("s2", "read me the OTP", 9000), Segment("s3", "okay", 12000)]
+    events = []
+
+    async def emit(e):
+        events.append(e)
+    d = SessionDetector(Clocked(respond), emit, min_interval_s=0.0, clock=lambda: now["ms"])
+    for s in segments:
+        now["ms"] = s.received_ms
+        d.add(s)
+        for _ in range(100):
+            if d.idle():
+                break
+            await asyncio.sleep(0.01)
+    await d.close()
+    assert [e["emitted_at_ms"] for e in events] == [1700, 5700, 9700, 12700]
+    assert [e["level"] for e in events] == ["none", "amber", "red", "red"]
+    assert events[1]["first_warning_at_ms"] == 5700 and events[1]["first_red_at_ms"] is None
+    assert events[2]["first_red_at_ms"] == 9700, "red is stamped when emitted, not when the segment arrived"
+    assert events[3]["first_warning_at_ms"] == 5700 and events[3]["first_red_at_ms"] == 9700
+    assert [e["analysed_through_ms"] for e in events] == [1000, 5000, 9000, 12000]
+    assert d.summary()["first_red_at_ms"] == 9700
+
+
+@pytest.mark.asyncio
+async def test_failure_events_are_timestamped_too():
+    def respond(request):
+        raise VerifierError("down")
+    events = []
+
+    async def emit(e):
+        events.append(e)
+    d = SessionDetector(MockVerifier(respond), emit, clock=lambda: 4321)
+    d.add(seg(0, "hello"))
+    for _ in range(100):
+        if events:
+            break
+        await asyncio.sleep(0.01)
+    await d.close()
+    assert events[0]["emitted_at_ms"] == 4321 and events[0]["analysed_through_ms"] is None
+
+
+@pytest.mark.asyncio
+async def test_failed_call_does_not_report_the_previous_calls_metadata():
+    replies = iter([chat_reply('{"findings": []}', cost=0.5), httpx.Response(503, text="down")])
+    d, events = await run(aicredits_client(lambda request: next(replies)), [seg(0, "a"), seg(1, "b")], gap=0.05)
+    assert events[0]["verifier"]["cost"] == 0.5
+    assert events[1]["analysis"] == "unavailable" and events[1]["verifier"] is None
+
+
+@pytest.mark.asyncio
+async def test_verifier_sees_short_aliases_and_evidence_keeps_real_segment_ids():
+    long_id = "20260929_2f74cc09-1ccd-4c76-8d82-0c076d0e1b2a"
+    v = MockVerifier(lambda request: [finding("credential_request", "seg1", "OTP आया है")])
+    d, events = await run(v, [Segment(long_id, "अभी जो OTP आया है वो बताइए", 0)])
+    assert v.requests[0]["segments"][0]["segment_id"] == "seg1" and long_id not in json.dumps(v.requests)
+    assert events[-1]["tactics"][0]["evidence"][0]["segment_id"] == long_id and events[-1]["level"] == "red"
+
+
+@pytest.mark.asyncio
+async def test_a_real_segment_id_copied_back_by_the_model_is_rejected():
+    long_id = "20260929_2f74cc09-1ccd-4c76-8d82-0c076d0e1b2a"
+    raw = {"tactic": "credential_request", "status": "present", "segment_id": long_id, "quote": "OTP"}
+    d, events = await run(MockVerifier(lambda request: [raw]), [Segment(long_id, "tell me the OTP", 0)])
+    assert events[-1]["analysis"] == "partial" and events[-1]["level"] == "none"

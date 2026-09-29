@@ -681,7 +681,8 @@ def test_final_segments_reach_the_detector_and_risk_is_forwarded(client, monkeyp
     assert risks[-1]["tactics"][0]["evidence"][0]["quote"] == "OTP आया है वो बताइए"
     assert stopped["analysis"]["status"] == "complete" and stopped["analysis"]["level"] == "red"
     requests = RecordingVerifier.instances[0].requests
-    assert [s["segment_id"] for s in requests[-1]["segments"]] == ["utt-0", "utt-1"]
+    assert [s["segment_id"] for s in requests[-1]["segments"]] == ["seg1", "seg2"]  # aliases, not provider IDs
+    assert risks[-1]["tactics"][0]["evidence"][0]["segment_id"] == "utt-1"  # mapped back to the real ID
     blob = json.dumps(requests)
     assert "speaker" not in blob and "language_code" not in blob and "processing_latency" not in blob
     wait_until(lambda: RecordingVerifier.instances[0].closed, "verifier not closed")
@@ -731,7 +732,7 @@ def test_empty_and_duplicate_finals_are_not_sent_to_the_detector(client, monkeyp
         FakeProvider.instances[0].on_flush = lambda p: None
         stop_and_collect(ws)
     ids = [s["segment_id"] for r in RecordingVerifier.instances[0].requests for s in r["segments"]]
-    assert ids == ["a"]
+    assert ids == ["seg1"]  # only one segment ("a") reached the detector
 
 
 def test_detector_is_closed_when_the_client_disconnects(client):

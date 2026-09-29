@@ -1,11 +1,9 @@
-"""Gemini tactic verifier for SessionDetector (REST generateContent with a response schema).
+"""Direct Google Gemini tactic verifier (REST generateContent with a response schema).
 
-Configuration (server-side only): GEMINI_API_KEY and GEMINI_MODEL, from the environment or the repo's
-.env. There is deliberately no default model: pin one that this account has been tested with.
+Selected with LLM_PROVIDER=gemini (see verifier_config.py). Also defines the shared prompt used by
+every provider. There is deliberately no default model: pin one that this account has been tested with.
 """
 import json
-import os
-from pathlib import Path
 
 import httpx
 
@@ -36,7 +34,10 @@ For each tactic that the CALLER applies to the listener in the given segments, r
 
 Only use segments given in this request. confirmed_evidence lists tactics already established earlier in
 the call; use it for context, do not repeat it unless a new segment shows it again. When unsure between
-"present" and another status, prefer the other status. Return an empty list when no tactic applies."""
+"present" and another status, prefer the other status. Return an empty list when no tactic applies.
+
+Respond with only a JSON object of the form {{"findings": [{{"tactic": "...", "status": "...",
+"segment_id": "...", "quote": "...", "reason": "..."}}]}} and nothing else: no other keys, no markdown."""
 
 RESPONSE_SCHEMA = {
     "type": "OBJECT",
@@ -61,23 +62,14 @@ RESPONSE_SCHEMA = {
 }
 
 
-def _config(name: str):
-    if os.environ.get(name):
-        return os.environ[name]
-    env = Path(__file__).resolve().parents[2] / ".env"
-    if env.exists():
-        for line in env.read_text().splitlines():
-            key, _, value = line.partition("=")
-            if key.strip() == name and value.strip():
-                return value.strip()
-    return None
-
-
 class GeminiVerifier:
+    provider = "gemini"
+
     def __init__(self, api_key: str, model: str, *, timeout_s: float = 8.0, client: httpx.AsyncClient | None = None,
-                 max_output_tokens: int = 2048):
+                 max_output_tokens: int = 4096):
         self.api_key, self.model, self.max_output_tokens = api_key, model, max_output_tokens
         self.client = client or httpx.AsyncClient(timeout=timeout_s)
+        self.last_call = None
 
     def body(self, request: dict) -> dict:
         return {
@@ -88,6 +80,7 @@ class GeminiVerifier:
         }
 
     async def analyse(self, request: dict) -> list:
+        self.last_call = None  # never report a previous call's model or cost for this one
         try:
             r = await self.client.post(API_URL.format(model=self.model), json=self.body(request),
                                        headers={"x-goog-api-key": self.api_key})
@@ -107,6 +100,11 @@ class GeminiVerifier:
                 raise VerifierError(f"Gemini stopped early: {candidate.get('finishReason')}")
             text = "".join(p.get("text", "") for p in candidate["content"]["parts"])
             findings = json.loads(text)["findings"]
+            usage = data.get("usageMetadata") or {}
+            self.last_call = {"provider": self.provider, "requested_model": self.model,
+                              "returned_model": data.get("modelVersion"), "finish_reason": candidate.get("finishReason"),
+                              "prompt_tokens": usage.get("promptTokenCount"),
+                              "completion_tokens": usage.get("candidatesTokenCount"), "cost": None}
         except VerifierError:
             raise
         except (ValueError, KeyError, IndexError, TypeError) as e:
@@ -118,13 +116,3 @@ class GeminiVerifier:
 
     async def close(self) -> None:
         await self.client.aclose()
-
-
-def make_verifier():
-    """Returns (verifier, None) or (None, reason it is unavailable)."""
-    key, model = _config("GEMINI_API_KEY"), _config("GEMINI_MODEL")
-    if not key:
-        return None, "GEMINI_API_KEY is not configured on the server"
-    if not model:
-        return None, "GEMINI_MODEL is not configured on the server"
-    return GeminiVerifier(key, model), None

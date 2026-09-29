@@ -35,20 +35,37 @@ uv run backend/spike/relay_smoke.py backend/spike/samples/te_en_digital_arrest.w
 
 Samples are synthetic TTS (clean studio audio, one speaker). They do not represent speakerphone audio picked up by a second device; results here are not an accuracy claim.
 
-## Incremental scam-tactic detector (Gemini)
+## Incremental scam-tactic detector
 
-`detector.py` holds the contract and the deterministic risk policy; `gemini_verifier.py` is the Gemini client. The relay feeds each **finalized, non-empty, first-seen** transcript segment to a per-session `SessionDetector`, in arrival order, and forwards its `risk` events to the browser. The page ignores these for now; the dashboard and spoken warnings are later work.
+`detector.py` holds the contract and the deterministic risk policy. `verifier_config.py` chooses **exactly one** provider (no fallback): `aicredits_verifier.py` (AICredits gateway, OpenAI-compatible, **primary and default**) or `gemini_verifier.py` (direct Google Gemini, selected explicitly). The relay feeds each **finalized, non-empty, first-seen** transcript segment to a per-session `SessionDetector`, in arrival order, and forwards its `risk` events to the browser. The page ignores these for now; the dashboard and spoken warnings are later work.
 
 - **Input contract.** Only `segment_id`, `text` and the server's receive time. No speaker labels (live STT has none), family IDs, scam/genuine labels, first-ask times or future segments. Evaluation data and ground truth are not used as prompt examples.
+- **Short aliases.** The model sees segments as `seg1`, `seg2`, … and the detector maps findings back to real segment IDs. In a live run the model mis-copied Sarvam's long request IDs and every finding was rejected.
 - **No spelling gate.** Every finalized segment is analysed, because Sarvam transliterates or mishears acronyms (OTP / ओटीपी, KYC → कार्ड/कैट, Cyber → "Cibir"). The prompt tells the model to judge meaning, not spelling.
-- **Evidence.** The model returns tactic findings with status `present | negated | benign` and a verbatim quote. Only `present` findings whose quote occurs in the named segment are kept. Negated warnings ("never share your OTP"), benign look-alikes (delivery codes) and the listener's own words are not evidence.
+- **Strict validation.** A reply that is not a list of findings is a failed analysis. Each finding must have exactly `tactic`, `status` and `segment_id`, `quote`, with an optional `reason`; all strings; a known tactic and status (`present | negated | benign`); an alias from this request; and a non-empty quote of at most 300 characters that occurs in that segment. Negated and benign findings are validated too, but only `present` ones are evidence. Any rejected finding makes that analysis `partial`, never `ok`.
 - **Risk is computed in code, not by the model.** `red` for a credential or remote-access request, a money request plus authority, threat or secrecy, or authority + threat + secrecy together. `amber` for two or more pressure tactics. Otherwise `none`, which means "no warning yet", never "safe". Warnings are never cleared during a session.
+- **Real emission timestamps.** Every `risk` event carries `emitted_at_ms`, stamped on the relay's session clock at the moment it is sent. It also carries `first_warning_at_ms` and `first_red_at_ms` (the emission times of the first amber and first red), plus `analysed_through_ms` (receive time of the newest analysed segment). These are the alert times evaluation should use, not segment or model times.
 - **Bounds.** One call in flight; segments that arrive meanwhile are coalesced. At least 1 s between calls, an 8 s timeout per call, at most 60 calls per session, and at most 50 queued segments. Context is the last 12 segments within 4,000 characters, plus up to 3 retained quotes per confirmed tactic, so early clues survive. Runs of four or more digits are masked as `[NUMBER]` before anything leaves the server. Spelled-out numbers and names are not masked.
-- **Failures are visible.** A timeout, HTTP error, blocked reply, malformed reply or exhausted budget emits `analysis: "unavailable"` with the reason and keeps the current level. Stop waits, within the same 6 s deadline, for analysis of the final segments. `stopped.analysis` reports `complete | incomplete | pending | unavailable` separately from transcription completeness.
-- **Configuration.** `GEMINI_API_KEY` and `GEMINI_MODEL` come from the environment or `.env`, server-side only. There is no default model: pin one that has been tested with this account. Without both, transcription still works and every session reports analysis `unavailable`.
+- **Failures are visible.** A timeout, HTTP error, blocked or truncated reply, model mismatch, malformed reply or exhausted budget emits `analysis: "unavailable"` with the reason and keeps the current level. Stop waits, within the same 6 s deadline, for analysis of the final segments. `stopped.analysis` reports `complete | incomplete | pending | unavailable` separately from transcription completeness.
+
+### Configuration (server-side only, environment or `.env`)
+
+| Variable | Meaning |
+|---|---|
+| `LLM_PROVIDER` | `aicredits` (default), `gemini`, or `off` (no analysis, reported as unavailable: use for tests that must not make paid calls) |
+| `AICREDITS_API_KEY`, `AICREDITS_MODEL` | AICredits gateway. The model is currently `gemini-2.5-flash`. `AICREDITS_BASE_URL` defaults to `https://api.aicredits.in` |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Direct Google Gemini, only when `LLM_PROVIDER=gemini` |
+
+There are no default models. If the gateway answers with a different model from the one configured, the reply is rejected; nothing is substituted. AICredits documents only `response_format: {"type": "json_object"}` (no JSON schema), so the output format is enforced by the prompt and the strict local validation.
+
+**Privacy.** With AICredits, the redacted recent transcript text passes through the AICredits gateway to Google. The AICredits privacy policy says prompts are retained for 30 days and routed to providers outside India. Use synthetic or consented audio only.
 
 ```bash
 uv run --no-project --with "fastapi>=0.115" --with httpx --with pytest --with pytest-asyncio --with websockets pytest -q backend/spike/
 ```
 
-Tests use a scripted mock verifier and a mock HTTP transport. **No real Gemini call has been made yet**: no key was configured when this was written. The prompt, schema and model choice therefore still need a real check.
+Live check with the configured provider (synthetic conversations only; makes billed calls):
+
+```bash
+uv run --no-project --with httpx python backend/spike/detector_smoke.py
+```
