@@ -16,6 +16,24 @@ from backend.evaluation.replay_runner import load_pilot, run_development_set
 PROVIDER_HTTP_TIMEOUT_S = 8.0
 
 
+def repo_state():
+    root = Path(__file__).resolve().parents[2]
+    try:
+        commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+        changes = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise RuntimeError("cannot identify the repository state") from error
+    if not commit:
+        raise RuntimeError("cannot identify the repository commit")
+    return {"repo_commit": commit, "uncommitted_changes": bool(changes.strip())}
+
+
 def detector_commit():
     root = Path(__file__).resolve().parents[2]
     try:
@@ -32,8 +50,9 @@ def detector_commit():
 
 
 def api_usage(calls):
-    """Sum only usage attached to emitted detector events; unknown values stay null."""
+    """Sum returned usage once per detector request; flag incomplete cost coverage."""
     records = []
+    detector_requests = sum(call["detector_summary"]["calls"] for call in calls)
     for call in calls:
         seen_calls = set()
         for event in call["risk_events"]:
@@ -50,10 +69,15 @@ def api_usage(calls):
                   and not isinstance(record[field], bool)]
         return sum(values) if values else None
 
-    return {"responses_with_metadata": len(records),
+    cost_responses = sum(isinstance(record.get("cost"), (int, float))
+                         and not isinstance(record["cost"], bool) for record in records)
+    return {"detector_requests": detector_requests,
+            "responses_with_metadata": len(records),
+            "responses_with_reported_cost": cost_responses,
             "prompt_tokens": total("prompt_tokens"),
             "completion_tokens": total("completion_tokens"),
             "reported_cost_total": total("cost"),
+            "reported_cost_is_partial": cost_responses < detector_requests,
             "reported_cost_unit": "provider-defined; not inferred by runner"}
 
 
@@ -77,6 +101,7 @@ async def run(output: Path, finalize_timeout_s: float):
     detector, verifier, prompt_version = live_components()
     started_at = datetime.now(timezone.utc).isoformat()
     try:
+        repository = repo_state()
         commit = detector_commit()
         detector_timeout_s = inspect.signature(detector.SessionDetector).parameters["call_timeout_s"].default
         report = await run_development_set(transcripts, truth, verifier, detector,
@@ -84,6 +109,7 @@ async def run(output: Path, finalize_timeout_s: float):
     finally:
         await verifier.close()
     report["reproducibility"] = {
+        **repository,
         "detector_commit": commit,
         "provider": verifier.provider,
         "model": verifier.model,

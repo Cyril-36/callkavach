@@ -37,19 +37,24 @@ uv run --no-project --with httpx python -m backend.evaluation.run_pilot \
   --output /tmp/callkavach-dev-replay.json
 ```
 
-Each live report includes a `reproducibility` manifest with the detector file's
-last commit SHA, selected provider and exact configured model, prompt version,
-UTC run times, provider HTTP/detector/finalize timeouts, and token usage and
-cost **where the API returned them**. Missing usage or cost is `null`, not zero;
-the runner does not infer a currency or price. Raw per-event provider metadata
-remains in `calls[].risk_events[].verifier`. The manifest is written only after
-a live run; this repository contains no measured pilot report.
+Each live report includes a `reproducibility` manifest with the repository HEAD
+SHA and an `uncommitted_changes` flag, the detector file's last commit SHA,
+selected provider and exact configured model, prompt version, UTC run times,
+provider HTTP/detector/finalize timeouts, and token usage and cost **where the
+API returned them**. `reported_cost_is_partial` is true when fewer detector
+requests have returned cost values than were made; the total then covers only
+the returned values. Missing cost is `null`, not zero, and the runner does not
+infer a currency or price. Raw per-event provider metadata remains in
+`calls[].risk_events[].verifier`. The manifest is written only after a live
+run; this repository contains no measured pilot report.
 
 This is a **synthetic text replay**. Scripted segment and first-ask times are
 not measured speech or STT timing. `emitted_at_ms` and the processing delays
 come from the detector's actual replay clock; they are not audio-to-warning
-latency. Independent language review of these development calls is pending,
-so any tuning or score from them is provisional. Never feed the sealed final
+latency. Independent Hindi-English and Telugu-English fluent-speaker reviews
+are pending, as recorded in `MULTILINGUAL_PILOT_REVIEW.md` and the report's
+`language_review` and `score_status` fields. Any score is provisional until
+those reviews are done. Never feed the sealed final
 families to this development runner or tune after seeing their results.
 
 ## Example

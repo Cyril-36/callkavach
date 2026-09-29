@@ -83,6 +83,11 @@ class ReplayRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(report["metrics"]["overall"]["scam_recall"]["numerator"], 1)
         self.assertEqual(report["metrics"]["overall"]["false_alarm_rate"]["numerator"], 1)
         self.assertEqual(report["failure_calls"], 0)
+        self.assertEqual(report["language_review"], {
+            "hi-en": "independent_fluent_review_pending",
+            "te-en": "independent_fluent_review_pending",
+        })
+        self.assertIn("provisional", report["score_status"])
         self.assertEqual(report["latency"]["verifier_calls"], 4)
         self.assertEqual(report["latency"]["median_verifier_latency_ms"], 2)
         self.assertEqual(len(FakeModule.seen), 4)
