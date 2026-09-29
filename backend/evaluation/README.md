@@ -23,13 +23,14 @@ alarms, scam recall, red warning before the scripted first ask, verifier latency
 post-receive delay, and detector failures. Failed calls remain in metric
 denominators and are counted separately.
 
-The command below requires the main implementer's detector (PR #10) to be
-merged and a configured AICredits verifier. Until then it exits without
-producing results. Run from the repository root and save the output outside
-the repository:
+The command below uses the merged detector and requires a configured
+AICredits verifier. It exits without producing results if the provider is
+unavailable. Run from the repository root and save the output outside the
+repository. The repo uses `uv` to provide the detector's `httpx` dependency:
 
 ```bash
-python3 -m backend.evaluation.run_pilot --output /tmp/callkavach-dev-replay.json
+uv run --no-project --with httpx python -m backend.evaluation.run_pilot \
+  --output /tmp/callkavach-dev-replay.json
 ```
 
 This is a **synthetic text replay**. Scripted segment and first-ask times are

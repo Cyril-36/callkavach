@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 import unittest
 
+from backend.spike import detector as actual_detector
 from backend.evaluation.replay_runner import replay_call, run_development_set
 
 
@@ -100,3 +101,24 @@ class ReplayRunnerTests(unittest.IsolatedAsyncioTestCase):
                                       [{"call_id": "a", "label": "unknown", "first_ask_at_ms": 0}],
                                       "ok", FakeModule)
         self.assertEqual(len(FakeModule.seen), previous_count)
+
+    async def test_merged_detector_contract_with_fake_verifier(self):
+        class Verifier:
+            last_call = None
+
+            async def analyse(self, request):
+                segment = request["segments"][-1]
+                return [{"tactic": "credential_request", "status": "present",
+                         "segment_id": segment["segment_id"], "quote": segment["text"]}]
+
+        transcript = {"call_id": "opaque-only-for-report", "language": "hi-en", "segments": [
+            {"segment_id": "raw-answer-id", "speaker": "caller",
+             "text": "Read the banking OTP to me.", "start_at_ms": 0, "end_at_ms": 1,
+             "final": True},
+        ]}
+        result = await replay_call(transcript, Verifier(), actual_detector)
+        self.assertEqual(result["detector_summary"]["level"], "red")
+        self.assertEqual(result["first_red_at_ms"], result["risk_events"][0]["emitted_at_ms"])
+        self.assertEqual(result["risk_events"][0]["tactics"][0]["evidence"][0]["segment_id"],
+                         "seg1")
+        self.assertEqual(result["failures"], [])
