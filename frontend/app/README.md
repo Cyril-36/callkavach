@@ -13,10 +13,10 @@ Open http://127.0.0.1:8766/. For a local run with no paid calls, put `STT_PROVID
 1. **Live microphone** (`#live`). It captures the speakerphone through this device's microphone and streams 16 kHz PCM to this page's own `/ws/audio`.
 2. **Analyse sample audio** (`#sample`). It sends a synthetic WAV from `/samples/` through the same real pipeline, paced in real time. Four offline-generated synthetic WAVs are included in the repository so this mode works in a clean checkout. To regenerate them on macOS, run `bash backend/spike/make_samples.sh`. The scam or genuine label is compared only when the run is complete.
 3. **Recorded replay** (`#replay`). It plays back a session log that you saved from Live or Sample mode with **Save session log**. The log is a local file (`callkavach.session_log.v1`) containing the relay's own messages, transcripts included. It is never uploaded and never committed. Nothing runs during replay.
-4. **Evaluation report** (`#eval`). It reads `eval/report.json` next to this page: a `callkavach.public_eval.v1` file made by `node frontend/app/export-eval-report.mjs RAW.json`.
+4. **Evaluation report** (`#eval`). It reads `/eval/report.json`, which the relay serves from `CALLKAVACH_EVAL_REPORT` or `CALLKAVACH_EVAL_REPORT_JSON` (`backend/spike/public_eval.py`). It never comes from a file in the repository; `frontend/app/eval/` is gitignored, and nothing under `/eval/` is served from it. The file is a `callkavach.public_eval.v1` export made by `node frontend/app/export-eval-report.mjs RAW.json PUBLIC.json`, which refuses an output path inside the repository.
    - **What the export keeps:** a whitelist from a `backend/evaluation/run_pilot.py` result: aggregate metrics, per-call timing and status, failure *categories*, and the reproducibility manifest.
    - **What it drops:** risk events, evidence quotes, detector summaries, verifier metadata and any free text.
-   - **Raw reports:** the raw runner report holds transcript-derived text, so it stays outside the repository. `eval-report.js` refuses to display it.
+   - **Raw reports:** the raw runner report holds transcript-derived text. The server refuses to serve it, and `eval-report.js` refuses to display it.
    - **No report:** if the file is missing, nothing is shown. No example numbers are shipped.
 
 ## Protocol (backend/spike/DETECTOR_CONTRACT.md)

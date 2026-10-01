@@ -21,6 +21,8 @@ Put these in the host's secret or environment settings, never in Git or the imag
 | `CALLKAVACH_ACCESS_CODE` | A code you give to testers and judges. Without it, anyone with the link spends your credits |
 | `CALLKAVACH_MAX_SESSIONS_PER_HOUR` | For example `20`. A server-wide cap on sessions that reach Sarvam or AICredits |
 
+| `CALLKAVACH_EVAL_REPORT_JSON` *(optional)* | The contents of a public evaluation export (`node frontend/app/export-eval-report.mjs RAW.json PUBLIC.json`), shown in the Evaluation tab. Alternatively, set `CALLKAVACH_EVAL_REPORT` to a file path outside the repository. The server refuses anything that isn't the sanitised public form |
+
 The host sets `PORT`.
 
 **The relay refuses to start (`ConfigError`) when:**

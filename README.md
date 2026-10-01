@@ -32,7 +32,7 @@ Put the doubtful call on speaker, keep a phone or laptop running CallKavach next
 | **1 · Live microphone** | Real microphone → speech-to-text → detector |
 | **2 · Analyse sample audio** | A synthetic call WAV through the same real pipeline, compared with its label afterwards |
 | **3 · Recorded replay** | A session log saved from mode 1 or 2. Nothing runs; it's for presentations |
-| **Evaluation report** | Shows `frontend/app/eval/report.json`, a sanitised export of a development replay run (numbers only), if one has been published |
+| **Evaluation report** | Shows a sanitised export of a development replay run (numbers only), served from outside the repository, if one has been published |
 
 **Run locally:**
 
@@ -68,11 +68,12 @@ synthetic sample WAV ──────┴─> AudioWorklet → 16 kHz PCM ─We
 ## Evidence so far, honestly labelled
 
 - **Tests:** offline suites cover the relay, detector, Stop and failure paths, the browser protocol, and the app lifecycle, all with mock providers and no paid calls. Commands are in the module READMEs.
-- **Live smoke run (synthetic, n = 4, not an accuracy measurement):** four macOS text-to-speech calls went through the real pipeline in Sample mode:
+- **Live smoke run (synthetic, n = 4, not an accuracy measurement):** on 1 October, with code identical to commit `06b29d6`, four macOS text-to-speech calls went through the real pipeline in Sample mode. Setup, both passes and costs are in the owner's private QA record, which is kept out of Git. Results of the second pass:
   - a Telugu–English digital-arrest call and a Hindi–English KYC/OTP call: **red**;
   - a genuine bank call that says "never share your OTP" and a genuine delivery-code call: **no warning**;
   - all four were fully analysed. Each analysis call took 4–7 s and was reported at ₹0.16–0.39.
-- **Development replay:** `backend/evaluation/run_pilot.py` measures RED recall, RED false alarms, warned-before-first-ask and amber rates on the synthetic multilingual pilot. Publish a result with `node frontend/app/export-eval-report.mjs /tmp/callkavach-dev-replay.json`. This writes only numbers, status values and failure categories to `frontend/app/eval/report.json`. The raw report contains evidence quotes and stays outside the repository; the app refuses to show it. Until a result is published, no score is claimed.
+  - In the first pass, before the Stop fix, the genuine bank call was cut off at Stop and reported as INCOMPLETE, not as "no warning".
+- **Development replay:** `backend/evaluation/run_pilot.py` measures RED recall, RED false alarms, warned-before-first-ask and amber rates on the synthetic multilingual pilot. Publish a result with `node frontend/app/export-eval-report.mjs RAW.json PUBLIC.json`. This keeps only numbers, status values and failure categories, and refuses an output path inside the repository. The server then serves that file through `CALLKAVACH_EVAL_REPORT` (see [DEPLOY.md](DEPLOY.md)), only after checking it is the sanitised form. Live results never go into Git. Until a result is published, no score is claimed.
 - **Not yet measured:** real speakerphone audio, phone-to-phone latency, and the planned 300-call held-out test (not built in time).
 
 ## Limitations

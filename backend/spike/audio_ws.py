@@ -42,9 +42,11 @@ from collections import deque
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import public_eval
 from detector import Segment, SessionDetector, redact_tokens
 from verifier_config import make_verifier
 from stt_provider import ProviderError, default_connector
@@ -522,6 +524,22 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
 # Serve the pages from the same origin so they can reach /ws/audio: the listener app at /, the capture
 # spike and its lifecycle tests at /spike/. Synthetic sample WAVs (make_samples.sh, not in Git) and the
 # offline warning clips are mounted only when present on this machine.
+# The Evaluation tab's report comes from outside the repository (public_eval.py), never from a static file;
+# this route also shadows any file someone puts under frontend/app/eval/, so nothing there is served.
+@app.get("/eval/{name:path}")
+async def eval_report(name: str):
+    if name != "report.json":
+        raise HTTPException(404)
+    try:
+        report = public_eval.load()
+    except (public_eval.NotPublic, OSError, ValueError) as e:
+        log.warning("eval_report_refused reason=%s", str(e)[:120])
+        raise HTTPException(404, "the configured evaluation report is not a sanitised public export")
+    if report is None:
+        raise HTTPException(404, "no evaluation report is configured on this server")
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+
 _ROOT = Path(__file__).resolve().parents[2]
 for _path, _dir in (("/samples", _ROOT / "backend" / "spike" / "samples"), ("/assets", _ROOT / "assets")):
     if _dir.is_dir():

@@ -1251,3 +1251,80 @@ def test_transcription_unavailable_error_text_is_masked_for_the_browser(client, 
         ws.send_json(START)
         msg = expect_error(ws, "provider_unavailable", 1011)
     assert TOKEN not in msg["message"] and "[redacted]" in msg["message"]
+
+
+# --- Evaluation report: only a sanitised public export, only from outside the repository ---
+
+PUBLIC_REPORT = {
+    "schema": "callkavach.public_eval.v1", "dataset": "multilingual_development_pilot",
+    "timing_basis": "synthetic_text_replay_with_real_detector_clock", "score_status": "provisional", "review_status": None,
+    "metrics": {"overall": {"scam_recall": {"numerator": 1, "denominator": 1}, "false_alarm_rate": {"numerator": 0, "denominator": 1},
+                            "warned_before_ask": {"numerator": 1, "denominator": 1}, "median_time_to_alert_ms": 15400,
+                            "detected_scams": 1, "missed_scams": 0, "scams_without_ask": 0},
+                "by_language": {"hi-en": {"scam_recall": {"numerator": 1, "denominator": 1}}}},
+    "amber_warning_rates": {"overall": {"genuine_amber_warning_rate": {"numerator": 0, "denominator": 1}}, "by_language": {}},
+    "latency": {"verifier_calls": 3, "median_verifier_latency_ms": 4100},
+    "failure_calls": 0,
+    "reproducibility": {"repo_commit": "75b8577", "provider": "aicredits", "model": "gemini-2.5-flash",
+                        "api_usage": {"reported_cost_total": 1.2, "reported_cost_unit": "provider-defined; not inferred by runner"}},
+    "calls": [{"call_id": "c1", "language": "hi-en", "first_warning_at_ms": 9100, "first_red_at_ms": 15400,
+               "status": "complete", "failures": ["provider HTTP 503"]}],
+}
+
+
+@pytest.fixture
+def no_eval_env(monkeypatch):
+    monkeypatch.delenv("CALLKAVACH_EVAL_REPORT", raising=False)
+    monkeypatch.delenv("CALLKAVACH_EVAL_REPORT_JSON", raising=False)
+    return monkeypatch
+
+
+def test_eval_report_is_served_only_when_configured(no_eval_env, tmp_path):
+    http = TestClient(audio_ws.app)
+    assert http.get("/eval/report.json").status_code == 404
+    path = tmp_path / "public.json"
+    path.write_text(json.dumps(PUBLIC_REPORT))
+    no_eval_env.setenv("CALLKAVACH_EVAL_REPORT", str(path))
+    r = http.get("/eval/report.json")
+    assert r.status_code == 200 and r.json() == PUBLIC_REPORT and r.headers["cache-control"] == "no-store"
+    no_eval_env.delenv("CALLKAVACH_EVAL_REPORT")
+    no_eval_env.setenv("CALLKAVACH_EVAL_REPORT_JSON", json.dumps(PUBLIC_REPORT))
+    assert http.get("/eval/report.json").json() == PUBLIC_REPORT
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda r: r["calls"][0].update(risk_events=[{"tactics": [{"evidence": [{"quote": "SENTINEL OTP batao"}]}]}]),
+    lambda r: r["calls"][0].update(failures=["#0 unknown tactic 'SENTINEL'"]),
+    lambda r: r["calls"][0].update(call_id="मैं बैंक से SENTINEL बोल रहा हूँ, OTP बताइए!"),
+    lambda r: r.update(schema="raw"),
+    lambda r: r["reproducibility"].update(raw_verifier={"text": "SENTINEL"}),
+    lambda r: r["metrics"]["overall"].update(notes="SENTINEL\nfree text"),
+])
+def test_a_report_that_is_not_the_public_form_is_never_served(no_eval_env, mutate):
+    import copy
+    bad = copy.deepcopy(PUBLIC_REPORT)
+    mutate(bad)
+    no_eval_env.setenv("CALLKAVACH_EVAL_REPORT_JSON", json.dumps(bad, ensure_ascii=False))
+    r = TestClient(audio_ws.app).get("/eval/report.json")
+    assert r.status_code == 404 and "SENTINEL" not in r.text
+
+
+def test_files_under_frontend_eval_are_never_served(no_eval_env):
+    """Even a raw report dropped into frontend/app/eval/ by mistake is not reachable."""
+    eval_dir = audio_ws._ROOT / "frontend" / "app" / "eval"
+    existed = eval_dir.exists()
+    eval_dir.mkdir(exist_ok=True)
+    raw = eval_dir / "report.json"
+    other = eval_dir / "raw.json"
+    try:
+        raw.write_text('{"calls": [{"risk_events": "SENTINEL"}]}')
+        other.write_text('{"SENTINEL": true}')
+        http = TestClient(audio_ws.app)
+        for path in ("/eval/report.json", "/eval/raw.json"):
+            r = http.get(path)
+            assert r.status_code == 404 and "SENTINEL" not in r.text, path
+    finally:
+        raw.unlink(missing_ok=True)
+        other.unlink(missing_ok=True)
+        if not existed:
+            eval_dir.rmdir()

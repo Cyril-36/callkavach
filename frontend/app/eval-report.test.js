@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PUBLIC_SCHEMA, ReportError, failureKind, fraction, publicReport, readReport } from "./eval-report.js";
 
 const rate = (numerator, denominator) => ({ numerator, denominator, rate: denominator ? numerator / denominator : null });
@@ -58,10 +59,13 @@ test("the export keeps the numbers the tab shows, and failures only as fixed cat
   assert.equal(pub.reproducibility.api_usage.reported_cost_total, 1.234);
 });
 
+const EXPORTER = fileURLToPath(new URL("./export-eval-report.mjs", import.meta.url)); // portable, also on Windows
+const run = (...args) => execFileSync(process.execPath, [EXPORTER, ...args], { stdio: "pipe" });
+
 test("the export command writes the public form and nothing else", () => {
   const dir = mkdtempSync(join(tmpdir(), "ck-eval-"));
   writeFileSync(join(dir, "raw.json"), JSON.stringify(RAW));
-  execFileSync(process.execPath, [new URL("./export-eval-report.mjs", import.meta.url).pathname, join(dir, "raw.json"), join(dir, "out.json")]);
+  run(join(dir, "raw.json"), join(dir, "out.json"));
   const written = readFileSync(join(dir, "out.json"), "utf8");
   assert.ok(!written.includes("SENTINEL") && !written.includes("risk_events"));
   assert.equal(JSON.parse(written).schema, PUBLIC_SCHEMA);
@@ -111,4 +115,16 @@ test("failure categories never carry free text", () => {
 test("empty denominators never show as a percentage", () => {
   assert.deepEqual(fraction(rate(0, 0)), { frac: "0 / 0", pct: "no samples" });
   assert.deepEqual(fraction(undefined), { frac: "—", pct: "not reported" });
+});
+
+test("the export command refuses an output inside the repository, or no output at all", () => {
+  const dir = mkdtempSync(join(tmpdir(), "ck-eval-"));
+  writeFileSync(join(dir, "raw.json"), JSON.stringify(RAW));
+  const inRepo = fileURLToPath(new URL("./eval/report.json", import.meta.url));
+  for (const args of [[join(dir, "raw.json"), inRepo], [join(dir, "raw.json")]]) {
+    let failed = null;
+    try { run(...args); } catch (e) { failed = e; }
+    assert.ok(failed && failed.status === 2, `expected refusal for ${args.length} argument(s)`);
+  }
+  assert.match(String((() => { try { run(join(dir, "raw.json"), inRepo); } catch (e) { return e.stderr; } })()), /inside the repository/);
 });
