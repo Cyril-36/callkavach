@@ -23,14 +23,15 @@ Local-spike security: the Host header must be localhost, 127.0.0.1 or [::1] (sto
 and a browser Origin must match that host and port exactly; anything else is refused before any Sarvam
 session is opened. Browsers always send Origin on WebSocket upgrades; non-browser clients (such as
 relay_smoke.py) send none and are allowed on a trusted Host. An Origin check is not authentication - any non-browser client can set or omit
-the header - so a public deployment additionally needs authentication and rate limits.
+the header. This short-lived public demo uses an hourly session cap; sustained use needs authentication
+and stronger rate limits.
 
 Deployment (all off unless set; see DEPLOY.md):
   CALLKAVACH_PUBLIC_HOSTS           comma-separated host names served over https behind a TLS proxy; such a
                                     Host is accepted only with an Origin of exactly https://that-host
-  CALLKAVACH_ACCESS_CODE            shared code every session must send as start.access_code
+  CALLKAVACH_ACCESS_CODE            optional shared code; when set, clients must send start.access_code
   CALLKAVACH_MAX_SESSIONS_PER_HOUR  server-wide cap on sessions that reach the paid providers
-Both session checks run before any provider connection, so a refused session costs nothing.
+Configured session checks run before any provider connection, so a refused session costs nothing.
 """
 import asyncio
 import hmac
