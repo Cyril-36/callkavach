@@ -1,8 +1,8 @@
 # Offline QA and submission evidence — 1 October 2026
 
-Scope: Harshit's non-API handoff on `harshit/non-api-handoff`, based on `main` commit `e04bba5a1b8fc33556535d99e0155fd57b7fbbf9`. No live provider call, real call audio, deployed test, or held-out evaluation result was used here. Commands below were run from the repository root on Windows with Python and Node already installed.
+Scope: Harshit's non-API handoff, initially on `harshit/non-api-handoff` from `main` commit `e04bba5a1b8fc33556535d99e0155fd57b7fbbf9`. The later dated sections record additional offline and read-only deployed checks. No live provider call, real call audio or held-out evaluation result was used. Commands below were run from the repository root on Windows with Python and Node already installed.
 
-This file preserves earlier results as run history. The latest offline check on merged `main` is recorded at the end; its passing browser lifecycle result supersedes the earlier synthetic-browser timeout. The deployed phone checks remain pending.
+This file preserves earlier results as run history. The later offline browser lifecycle pass supersedes the earlier synthetic-browser timeout. The deployed phone checks remain pending.
 
 ## Offline checks actually run
 
@@ -81,11 +81,11 @@ Fill this record only from an observed run. Use synthetic or explicitly consente
 | Public HTTPS URL and deployed commit | [https://callkavach.onrender.com/](https://callkavach.onrender.com/) supplied by Harshit and reachable over HTTPS on 1 October 2026. The deployed commit was not independently identified; `f356999` in the evaluation report identifies the replay run's source commit, not necessarily the deployed app commit. |
 | Date/time (IST), phone model, OS and browser/version | 1 October 2026; Realme 11 Pro, Android 15, Chrome, reported by Harshit. Time and Chrome version pending. |
 | Input source and consent/synthetic status | Pending; no listening outcome was reported for the phone attempt. |
-| Access-code configuration and session-cap behavior | Harshit reported that Chrome said this server needs an access code and directed him to Settings to enter it. He did not report an authenticated session or session-cap test. The code itself must remain private. |
+| Access-code configuration and session-cap behavior | Before the later redeployment, Harshit reported that Chrome said this server needed an access code and directed him to Settings. The redeployed public page no longer shows an access-code field. A fresh Android listening session and the deployed hourly cap have not been verified. |
 
 | Phone check | Observed result | Private evidence reference |
 | --- | --- | --- |
-| Page loads over HTTPS; permission allowed; second-device listening starts | Harshit reached the access-code requirement on the phone. Microphone permission and second-device listening remain pending. | Harshit's 1 October report; no recording or transcript |
+| Page loads over HTTPS; permission allowed; second-device listening starts | Harshit reached the access-code requirement on the earlier deployment. The redeployed page has not been retested on his phone; microphone permission and second-device listening remain pending. | Harshit's 1 October report; no recording or transcript |
 | Microphone permission denied; page clearly says it is not listening | Pending | Pending |
 | Microphone or network disconnect; warning status does not imply a safe call | Pending | Pending |
 | Stop → Start creates a fresh session; note whether Stop was confirmed or analysis cut off | Pending | Pending |
@@ -108,4 +108,19 @@ These checks used the public site in the Codex in-app browser and HTTP GET/HEAD 
 
 The separate phone checklist above remains pending until Harshit reports observations from a real second-device run with synthetic or explicitly consented speech. Do not infer permission, disconnect, Stop → Start or warning-playback behavior from these read-only checks.
 
-The deployed page's **Settings** panel has an **Access code (only if this server asks for one)** field saved on the device. Cyril must provide any tester code privately; it should be entered on the phone and never copied into this QA record. The reported access-code gate does not establish that the microphone, provider pipeline or warning playback works.
+The earlier deployment's **Settings** panel had an access-code field, matching Harshit's phone report. That guidance was superseded by the redeployment described below. The earlier access-code gate does not establish that the microphone, provider pipeline or warning playback works.
+
+### Read-only redeployment check after PR #26
+
+Checked on 1 October 2026. `main` at `52ab9ba` contains [PR #26](https://github.com/Cyril-36/callkavach/pull/26), which removes the access-code field from the public demo and requires an hourly session cap when no code is configured. The deployed `index.html`, `app.js` and `session-core.js` matched that `main` snapshot after line-ending normalisation. This comparison does not identify the deployed backend configuration.
+
+| Check | Observed result |
+| --- | --- |
+| Public listener and Settings | HTTPS page returned 200, showed **Not listening yet**, and Settings had no access-code field. No Start action was taken, so a real WebSocket/provider session and the runtime cap were not verified. |
+| Narrow browser panel | In an approximately 855-pixel Codex side panel, the header and mode tabs wrapped, the main cards stacked, and Start, help actions and evaluation remained visible by scrolling. This is a narrow desktop layout, not a 390-pixel mobile emulation or an Android device test. |
+| Modes | Sample mode listed eleven synthetic examples and remained idle; replay mode showed **Nothing is running** with no log loaded; the evaluation tab rendered the ten-call report and its two failure warnings. No sample was analysed or replay file loaded. |
+| Static assets and warning tests | HEAD returned 200 for all eleven deployed synthetic WAV samples and all six amber/red warning WAVs. In the browser, Hindi, Telugu and English **Test warning sound** each reached **Playing…** and then **Did you hear it clearly?**; actual audibility and pronunciation were not judged. The optional `test-*.wav` and `test-*.mp3` paths returned 404; the app's test control falls back to the available amber clips, though Settings still lists `test` in its path pattern. |
+| Public report | `/eval/report.json` still returned ten calls, 5/5 scam red alerts, 0/5 genuine red or amber warnings, 5/5 first warnings before the scripted ask, and two detector failures. This remains synthetic text replay evidence, not phone-audio latency. |
+| Offline access checks | `python -m pytest -q backend/spike/test_audio_ws.py -k 'public_host or hourly_cap or access_code' -p pytest_asyncio -p no:cacheprovider --disable-warnings --tb=short` with the temporary test dependency path: 30 passed, 107 deselected. `node --test frontend/app/session-core.test.js`: 21 passed. These check code paths, not the deployed provider. |
+
+The browser did not provide a true phone viewport, and the earlier Realme Chrome attempt predates the redeployment. Permission denial, actual microphone streaming, disconnect, Stop → Start, warning audibility and help-link activation on a phone remain unverified. No live provider call was made.
