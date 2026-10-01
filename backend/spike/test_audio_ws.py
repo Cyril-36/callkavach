@@ -1028,16 +1028,16 @@ def test_public_host_refuses_anything_but_its_own_https_origin(client, monkeypat
     assert calls == [] and audio_ws.active_sessions == 0
 
 
-def test_public_host_is_refused_if_the_hourly_cap_is_missing_at_runtime(client, monkeypatch, public_host):
-    """Second guard behind deployment_config: never serve a public host without a session cap."""
+def test_public_host_without_hourly_cap_or_access_code_accepts_sessions(client, monkeypatch, public_host):
+    """A public testing deployment has no hourly quota, even after many prior sessions."""
     calls = counting_provider(monkeypatch)
+    monkeypatch.setattr(audio_ws, "ACCESS_CODE", None)
     monkeypatch.setattr(audio_ws, "MAX_SESSIONS_PER_HOUR", None)
+    audio_ws._session_starts.extend([0.0] * 50)
     headers = {"host": "callkavach.example.app", "origin": "https://callkavach.example.app"}
-    with pytest.raises(WebSocketDisconnect) as refused:
-        with client.websocket_connect("/ws/audio", headers=headers) as ws:
-            ws.send_json(PUBLIC_START)
-            ws.receive_json()
-    assert refused.value.code == 1008 and calls == []
+    with client.websocket_connect("/ws/audio", headers=headers) as ws:
+        open_session(ws, START)
+    assert calls == ["te-IN"]
 
 
 def test_public_host_with_hourly_cap_accepts_a_session_without_access_code(client, monkeypatch, public_host):
@@ -1105,9 +1105,11 @@ def test_deployment_config_reads_a_complete_public_setup():
     without_code = {k: v for k, v in PUBLIC.items() if k != "CALLKAVACH_ACCESS_CODE"}
     assert audio_ws.deployment_config(without_code) == (
         frozenset({"callkavach.example.app", "second.example.app"}), None, 20)
+    assert audio_ws.deployment_config({"CALLKAVACH_PUBLIC_HOSTS": "callkavach.example.app"}) == (
+        frozenset({"callkavach.example.app"}), None, None)
 
 
-def test_deployment_config_without_a_public_host_needs_no_protection():
+def test_deployment_config_without_optional_protections():
     assert audio_ws.deployment_config({}) == (frozenset(), None, None)
     assert audio_ws.deployment_config({"CALLKAVACH_MAX_SESSIONS_PER_HOUR": ""}) == (frozenset(), None, None)
     assert audio_ws.deployment_config({"CALLKAVACH_ACCESS_CODE": "x"}) == (frozenset(), "x", None)
@@ -1119,15 +1121,8 @@ def test_hourly_cap_must_be_a_positive_integer(value):
         audio_ws.deployment_config({"CALLKAVACH_MAX_SESSIONS_PER_HOUR": value})
 
 
-def test_public_host_without_hourly_cap_fails_closed():
-    env = {k: v for k, v in PUBLIC.items() if k != "CALLKAVACH_MAX_SESSIONS_PER_HOUR"}
-    with pytest.raises(audio_ws.ConfigError, match="CALLKAVACH_MAX_SESSIONS_PER_HOUR"):
-        audio_ws.deployment_config(env)
-
-
 @pytest.mark.parametrize("env,message", [
     ({"CALLKAVACH_MAX_SESSIONS_PER_HOUR": "0"}, "positive integer"),
-    ({"CALLKAVACH_PUBLIC_HOSTS": "callkavach.example.app"}, "refusing to serve a public host"),
 ])
 def test_relay_refuses_to_start_with_an_invalid_deployment_config(env, message):
     import os
