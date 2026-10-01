@@ -90,12 +90,15 @@ const tests = {
   },
 };
 
-let failed = 0;
-for (const [name, fn] of Object.entries(tests)) {
-  const li = document.createElement("li");
-  try { await fn(); li.textContent = `PASS  ${name}`; }
-  catch (e) { failed++; li.textContent = `FAIL  ${name}: ${e.message}`; }
-  results.append(li);
-}
-document.getElementById("frame")?.remove();
-document.title = failed ? `${failed} FAILED` : "ALL PASSED";
+document.getElementById("run").addEventListener("click", async () => {
+  document.getElementById("run").disabled = true;
+  let failed = 0;
+  for (const [name, fn] of Object.entries(tests)) {
+    const li = document.createElement("li");
+    try { await fn(); li.textContent = `PASS  ${name}`; }
+    catch (e) { failed++; li.textContent = `FAIL  ${name}: ${e.message}`; }
+    results.append(li);
+  }
+  document.getElementById("frame")?.remove();
+  document.title = failed ? `${failed} FAILED` : "ALL PASSED";
+});
