@@ -8,7 +8,7 @@ import {
 } from "./session-core.js";
 
 const READY_TIMEOUT_MS = 12000; // includes the relay opening the transcription session
-const CLIP_BASE = "/assets/warnings"; // {lang}/{amber|red|test}.mp3 (or .wav)
+const CLIP_BASE = "/assets/warnings"; // {amber|red|test}-{lang}.mp3 (or .wav)
 const REPORT_URL = "eval/report.json";
 const LOG_SCHEMA = "callkavach.session_log.v1";
 const SAMPLES = [ // synthetic TTS from backend/spike/make_samples.sh, served from /samples/
@@ -258,9 +258,9 @@ function ensureOut() {
   return out;
 }
 function loadClip(lang, name) {
-  const key = `${lang}/${name}`;
+  const key = `${name}-${lang}`;
   if (!clips[key]) {
-    const get = (ext) => fetch(`${CLIP_BASE}/${lang}/${name}.${ext}`).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); });
+    const get = (ext) => fetch(`${CLIP_BASE}/${name}-${lang}.${ext}`).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); });
     clips[key] = get("mp3").catch(() => get("wav")).then((ab) => ensureOut().decodeAudioData(ab));
     clips[key].catch(() => { delete clips[key]; });
   }
@@ -286,8 +286,8 @@ async function playClip(level, why, lang = state.lang) {
       if (state.clipTok !== token) return;
       state.clipTok = null;
       if (level !== "test") state.clipStatus[lang] = "missing";
-      state.playback = { state: "error", level, why, lang, msg: `Couldn’t play the warning sound (${CLIP_BASE}/${lang}/${level}).` };
-      if (why === "test") state.test = { state: "error", msg: `Test failed: no clip at ${CLIP_BASE}/${lang}/. Warnings will only appear on screen.` };
+      state.playback = { state: "error", level, why, lang, msg: `Couldn’t play the warning sound (${CLIP_BASE}/${level}-${lang}).` };
+      if (why === "test") state.test = { state: "error", msg: `Test failed: no clip at ${CLIP_BASE}/*-${lang}. Warnings will only appear on screen.` };
       render(); return;
     }
   }
@@ -668,7 +668,7 @@ function healthRows(s) {
     const ln = langByCode(state.lang).name, st = state.clipStatus[state.lang];
     if (state.silenced) rows.push(mk("Spoken warning", "Silenced", "For this session", "wait"));
     else if (st === "ok") rows.push(mk("Spoken warning", "Ready", `${ln} amber and red clips loaded`, "ok"));
-    else if (st === "missing") rows.push(mk("Spoken warning", "Clips missing", `${CLIP_BASE}/${state.lang}/ · on-screen only`, "bad"));
+    else if (st === "missing") rows.push(mk("Spoken warning", "Clips missing", `${CLIP_BASE}/*-${state.lang} · on-screen only`, "bad"));
     else if (st === "loading") rows.push(mk("Spoken warning", "Loading…", ln, "wait"));
     else rows.push(mk("Spoken warning", "Not loaded yet", `Loads when you tap Start (${ln})`, "off"));
   }
@@ -820,7 +820,7 @@ function render() {
   patch("confirm", cs ? `<div class="confirm"><span style="font-size:17px;font-weight:700;flex:1;min-width:240px">${state.s?.source === "live" ? "Live listening is on. Switching stops it and releases the microphone." : "A sample is being analysed. Switching stops it."}</span><div class="row" style="gap:8px"><button class="btn-primary" style="background:#17191E;color:#FBF9F4;min-height:48px;font-size:16px" data-act="confirmYes">${state.s?.source === "live" ? "Stop listening and switch" : "Stop and switch"}</button><button class="btn" data-act="confirmNo">Keep going</button></div></div>` : "");
   patch("settings", state.settingsOpen ? `<section class="card" style="margin-top:14px"><div class="card-h"><h3 class="t">Settings</h3><span class="sub">Saved on this device</span></div>
     <label class="row" style="gap:10px;font-size:16px"><input type="checkbox" id="autoSpeak" ${state.autoSpeak ? "checked" : ""} style="width:22px;height:22px;accent-color:#17191E">Play the spoken warning automatically on amber or red</label>
-    <dl style="margin:0;display:grid;grid-template-columns:minmax(0,200px) minmax(0,1fr);gap:6px 14px;font-size:15px"><dt style="font-weight:700">Audio is sent to</dt><dd class="mono" style="margin:0">${esc(wsUrl())} (this page’s own server only)</dd><dt style="font-weight:700">Warning clips</dt><dd class="mono" style="margin:0">${CLIP_BASE}/{hi|te|en}/{amber|red|test}.mp3 or .wav</dd><dt style="font-weight:700">Evaluation report</dt><dd class="mono" style="margin:0">${REPORT_URL}</dd></dl>
+    <dl style="margin:0;display:grid;grid-template-columns:minmax(0,200px) minmax(0,1fr);gap:6px 14px;font-size:15px"><dt style="font-weight:700">Audio is sent to</dt><dd class="mono" style="margin:0">${esc(wsUrl())} (this page’s own server only)</dd><dt style="font-weight:700">Warning clips</dt><dd class="mono" style="margin:0">${CLIP_BASE}/{amber|red|test}-{hi|te|en}.mp3 or .wav</dd><dt style="font-weight:700">Evaluation report</dt><dd class="mono" style="margin:0">${REPORT_URL}</dd></dl>
     <p class="note">The app never computes a score. It shows only the level and evidence the backend sends. Nothing is saved on the server; a session log is saved only when you press “Save session log”, as a file on this device.</p></section>` : "");
   $("session").hidden = mode === "eval";
   $("eval").hidden = mode !== "eval";
