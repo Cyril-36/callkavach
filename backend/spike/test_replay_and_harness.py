@@ -206,3 +206,22 @@ def test_allow_flag_lets_an_in_repo_path_past_the_check(harness, tmp_path, monke
     monkeypatch.setattr(harness, "CASES", {"x": (str(wav), "te-IN", "test")})
     with pytest.raises(AssertionError, match="checked before any setup"):
         harness.main(["--json", str(harness.REPO_ROOT / "r.json"), "--allow-report-in-repo", "--cases", "x"])
+
+
+# --- prompt_check.py (paid when run; these tests are offline) ---
+
+def test_prompt_check_covers_scams_injection_and_genuine_bill_calls():
+    import prompt_check
+    expected = {name: level for name, (level, _text) in prompt_check.CASES.items()}
+    assert {n for n, lvl in expected.items() if lvl == "red"} == {"te_digital_arrest", "hi_kyc", "hi_upi_refund", "en_injection"}
+    assert {"hi_emi_genuine", "te_bill_genuine", "hi_bank_genuine", "hi_delivery_genuine"} <= {n for n, lvl in expected.items() if lvl == "none"}
+
+
+def test_prompt_check_refuses_an_in_repo_report_before_any_call(monkeypatch, capsys):
+    import prompt_check
+
+    def no_calls(**kwargs):
+        raise AssertionError("no verifier may be built before the path check")
+    monkeypatch.setattr(prompt_check, "make_verifier", no_calls)
+    assert prompt_check.main(["--json", str(prompt_check.HERE / "report.json")]) == 2
+    assert "inside the repository" in capsys.readouterr().err
