@@ -11,7 +11,7 @@ The submission deadline is **1 October 2026, 11:59 PM IST**. Aim to submit by 8 
 
 ## Merge authority and boundary
 
-Harshit has a pending invitation to collaborate on the public repository. After **he accepts**, collaborator write access allows him to merge eligible pull requests. The existing `main` rule still requires a PR, one current approval, code-owner review, approval of the latest push and resolved conversations. `CODEOWNERS` keeps Cyril as the code owner of all files. Harshit may operate the merge button for a teammate PR **only after Cyril has reviewed and approved its current head**, checks pass, and the PR is ready. Harshit does not merge his own PR or bypass branch protection. Cyril remains responsible for deciding whether code and logic match the project. Do not grant administrator or bypass access or weaken the rule for this handoff.
+Harshit has accepted the invitation to collaborate on the public repository and has write permission, which allows him to merge eligible pull requests. The existing `main` rule still requires a PR, one current approval, code-owner review, approval of the latest push and resolved conversations. `CODEOWNERS` keeps Cyril as the code owner of all files. Harshit may operate the merge button for a teammate PR **only after Cyril has reviewed and approved its current head**, checks pass, and the PR is ready. Harshit does not merge his own PR or bypass branch protection. Cyril remains responsible for deciding whether code and logic match the project. Do not grant administrator or bypass access or weaken the rule for this handoff.
 
 ## Sequence and handoffs
 

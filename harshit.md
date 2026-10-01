@@ -11,6 +11,6 @@ Owner: Harshit (`Harshit-ambati`). Integration and code-owner review: Cyril (`Cy
 
 ## Git and merge procedure
 
-Accept the existing GitHub collaborator invitation first. Branch from the latest `main` as `harshit/non-api-handoff`. Commit only your assigned docs and static assets under your own Git identity. Keep source audio, keys and ordinary call transcripts out of Git. Run `git diff --cached --check`, inspect the staged scope, push the branch and open a PR to `main` requesting `Cyril-36`. Do not merge your own PR.
+Your GitHub collaborator invitation has been accepted. Branch from the latest `main` as `harshit/non-api-handoff`. Commit only your assigned docs and static assets under your own Git identity. Keep source audio, keys and ordinary call transcripts out of Git. Run `git diff --cached --check`, inspect the staged scope, push the branch and open a PR to `main` requesting `Cyril-36`. Do not merge your own PR.
 
 After Cyril approves another teammate's current PR head, verify the required checks and conversations, then you may click **Merge** for that PR. Never bypass protection, merge a draft, merge after an unreviewed new push, or grant yourself administrator access. If the branch rule blocks a merge, report the exact status to Cyril rather than weakening it.
