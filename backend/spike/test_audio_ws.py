@@ -952,3 +952,159 @@ def test_pages_are_served_from_the_relay_origin():
     spike = client.get("/spike/")
     assert spike.status_code == 200 and "capture.js" in spike.text
     assert client.get("/spike/lifecycle.test.html").status_code == 200
+
+
+# --- deployment settings: public host, access code, hourly session cap (all off by default) ---
+
+PUBLIC_START = {**START, "access_code": "kavach-demo"}
+
+
+@pytest.fixture
+def public_host(monkeypatch):
+    """A valid public deployment: public host, access code and hourly cap all configured."""
+    monkeypatch.setattr(audio_ws, "PUBLIC_HOSTS", frozenset({"callkavach.example.app"}))
+    monkeypatch.setattr(audio_ws, "ACCESS_CODE", "kavach-demo")
+    monkeypatch.setattr(audio_ws, "MAX_SESSIONS_PER_HOUR", 50)
+    monkeypatch.setattr(audio_ws, "_session_starts", audio_ws.deque())
+
+
+@pytest.mark.parametrize("host,origin", [
+    ("callkavach.example.app", "https://callkavach.example.app"),
+    ("CallKavach.Example.App", "https://callkavach.example.app"),
+    ("callkavach.example.app:443", "https://callkavach.example.app:443"),
+])
+def test_configured_public_host_is_accepted_only_from_its_https_origin(client, monkeypatch, public_host, host, origin):
+    calls = counting_provider(monkeypatch)
+    with client.websocket_connect("/ws/audio", headers={"host": host, "origin": origin}) as ws:
+        open_session(ws, PUBLIC_START)
+    assert calls == ["te-IN"]
+
+
+@pytest.mark.parametrize("host,origin", [
+    ("callkavach.example.app", None),  # non-browser clients get no access on a public host
+    ("callkavach.example.app", "http://callkavach.example.app"),  # not https
+    ("callkavach.example.app", "https://evil.example"),
+    ("callkavach.example.app", "https://callkavach.example.app.evil.example"),
+    ("callkavach.example.app", "https://callkavach.example.app/path"),
+    ("callkavach.example.app", "https://callkavach.example.app:8443"),
+    ("other.example.app", "https://other.example.app"),  # not configured
+    ("evil.example", "https://callkavach.example.app"),
+    ("callkavach.example.app:8443", "https://callkavach.example.app"),  # Host port must be 443 or absent
+    ("callkavach.example.app:80", "https://callkavach.example.app"),
+    ("callkavach.example.app:8443", "https://callkavach.example.app:8443"),
+])
+def test_public_host_refuses_anything_but_its_own_https_origin(client, monkeypatch, public_host, host, origin):
+    calls = counting_provider(monkeypatch)
+    headers = {"host": host, **({"origin": origin} if origin else {})}
+    with pytest.raises(WebSocketDisconnect) as refused:
+        with client.websocket_connect("/ws/audio", headers=headers) as ws:
+            ws.send_json(PUBLIC_START)
+            ws.receive_json()
+    assert refused.value.code == 1008
+    assert calls == [] and audio_ws.active_sessions == 0
+
+
+@pytest.mark.parametrize("missing", ["ACCESS_CODE", "MAX_SESSIONS_PER_HOUR"])
+def test_public_host_is_refused_if_a_protection_is_missing_at_runtime(client, monkeypatch, public_host, missing):
+    """Second guard behind deployment_config: never serve a public host without both protections."""
+    calls = counting_provider(monkeypatch)
+    monkeypatch.setattr(audio_ws, missing, None)
+    headers = {"host": "callkavach.example.app", "origin": "https://callkavach.example.app"}
+    with pytest.raises(WebSocketDisconnect) as refused:
+        with client.websocket_connect("/ws/audio", headers=headers) as ws:
+            ws.send_json(PUBLIC_START)
+            ws.receive_json()
+    assert refused.value.code == 1008 and calls == []
+
+
+def test_public_hosts_are_off_by_default():
+    assert audio_ws.PUBLIC_HOSTS == frozenset() and audio_ws.ACCESS_CODE is None and audio_ws.MAX_SESSIONS_PER_HOUR is None
+
+
+@pytest.mark.parametrize("start", [START, {**START, "access_code": "wrong"}, {**START, "access_code": 1234}])
+def test_missing_or_wrong_access_code_is_refused_before_any_provider_session(client, monkeypatch, start):
+    calls = counting_provider(monkeypatch)
+    monkeypatch.setattr(audio_ws, "ACCESS_CODE", "kavach-demo")
+    monkeypatch.setattr(audio_ws, "ACCESS_DENIED_DELAY_S", 0.0)
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json(start)
+        expect_error(ws, "access_denied", 1008)
+    assert calls == [] and RecordingVerifier.instances == []
+    wait_for_no_sessions()
+
+
+def test_correct_access_code_opens_the_session(client, monkeypatch):
+    calls = counting_provider(monkeypatch)
+    monkeypatch.setattr(audio_ws, "ACCESS_CODE", "kavach-demo")
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws, {**START, "access_code": "kavach-demo"})
+    assert calls == ["te-IN"]
+
+
+def test_hourly_session_cap_refuses_further_sessions_before_any_provider_session(client, monkeypatch):
+    calls = counting_provider(monkeypatch)
+    monkeypatch.setattr(audio_ws, "MAX_SESSIONS_PER_HOUR", 2)
+    monkeypatch.setattr(audio_ws, "_session_starts", audio_ws.deque())
+    for _ in range(2):
+        with client.websocket_connect("/ws/audio") as ws:
+            open_session(ws)
+        wait_for_no_sessions()
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json(START)
+        msg = expect_error(ws, "session_quota", 1013)
+    assert "2 sessions per hour" in msg["message"]
+    assert calls == ["te-IN", "te-IN"]
+    audio_ws._session_starts[0] -= 3601  # the oldest start leaves the window
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+    assert len(calls) == 3
+
+
+# --- deployment configuration is validated at startup and fails closed ---
+
+PUBLIC = {"CALLKAVACH_PUBLIC_HOSTS": "CallKavach.example.app, second.example.app",
+          "CALLKAVACH_ACCESS_CODE": "kavach-demo", "CALLKAVACH_MAX_SESSIONS_PER_HOUR": "20"}
+
+
+def test_deployment_config_reads_a_complete_public_setup():
+    assert audio_ws.deployment_config(PUBLIC) == (
+        frozenset({"callkavach.example.app", "second.example.app"}), "kavach-demo", 20)
+    assert audio_ws.deployment_config({**PUBLIC, "CALLKAVACH_MAX_SESSIONS_PER_HOUR": " 7 "})[2] == 7
+
+
+def test_deployment_config_without_a_public_host_needs_no_protection():
+    assert audio_ws.deployment_config({}) == (frozenset(), None, None)
+    assert audio_ws.deployment_config({"CALLKAVACH_MAX_SESSIONS_PER_HOUR": ""}) == (frozenset(), None, None)
+    assert audio_ws.deployment_config({"CALLKAVACH_ACCESS_CODE": "x"}) == (frozenset(), "x", None)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", "abc", "20 sessions", "1e3", "٣"])
+def test_hourly_cap_must_be_a_positive_integer(value):
+    with pytest.raises(audio_ws.ConfigError, match="positive integer"):
+        audio_ws.deployment_config({"CALLKAVACH_MAX_SESSIONS_PER_HOUR": value})
+
+
+@pytest.mark.parametrize("drop,named", [
+    ("CALLKAVACH_ACCESS_CODE", "CALLKAVACH_ACCESS_CODE"),
+    ("CALLKAVACH_MAX_SESSIONS_PER_HOUR", "CALLKAVACH_MAX_SESSIONS_PER_HOUR"),
+])
+def test_public_host_without_code_or_cap_fails_closed(drop, named):
+    env = {k: v for k, v in PUBLIC.items() if k != drop}
+    with pytest.raises(audio_ws.ConfigError, match=named):
+        audio_ws.deployment_config(env)
+    with pytest.raises(audio_ws.ConfigError, match="CALLKAVACH_ACCESS_CODE"):
+        audio_ws.deployment_config({**PUBLIC, "CALLKAVACH_ACCESS_CODE": "   "})
+
+
+@pytest.mark.parametrize("env,message", [
+    ({"CALLKAVACH_MAX_SESSIONS_PER_HOUR": "0"}, "positive integer"),
+    ({"CALLKAVACH_PUBLIC_HOSTS": "callkavach.example.app"}, "refusing to serve a public host"),
+])
+def test_relay_refuses_to_start_with_an_invalid_deployment_config(env, message):
+    import os
+    import subprocess
+    import sys
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("CALLKAVACH_")}
+    done = subprocess.run([sys.executable, "-c", "import audio_ws"], cwd=os.path.dirname(audio_ws.__file__),
+                          env={**clean, **env}, capture_output=True, text=True, timeout=60)
+    assert done.returncode != 0 and "ConfigError" in done.stderr and message in done.stderr

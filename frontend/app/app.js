@@ -34,6 +34,7 @@ const state = {
   mode: ["live", "sample", "replay", "eval"].includes(location.hash.slice(1)) ? location.hash.slice(1) : "live",
   lang: LANGS.some((l) => l.code === store("callkavach.lang")) ? store("callkavach.lang") : "hi",
   autoSpeak: store("callkavach.autoSpeak") !== "0",
+  accessCode: store("callkavach.accessCode") || "", // kept on this device only; sent in the start message
   settingsOpen: false, confirmSwitch: null,
   s: null, // current live/sample session
   playback: null, test: null, share: null, clipStatus: {}, meter: 0, silenced: false,
@@ -70,7 +71,7 @@ function openSocket(langCode) {
   ws.binaryType = "arraybuffer";
   r.ws = ws;
   r.readyTimer = setTimeout(() => { if (rt === r && state.s.phase === "connecting") fail("unreachable", "the server did not accept audio within 12 s"); }, READY_TIMEOUT_MS);
-  ws.onopen = () => { if (rt === r) { ws.send(JSON.stringify(startMessage(langCode))); patchS({ connection: "open-waiting" }); } };
+  ws.onopen = () => { if (rt === r) { ws.send(JSON.stringify(startMessage(langCode, state.accessCode))); patchS({ connection: "open-waiting" }); } };
   ws.onmessage = ({ data }) => {
     if (rt !== r || typeof data !== "string") return;
     let m; try { m = JSON.parse(data); } catch { return; }
@@ -434,7 +435,8 @@ document.addEventListener("change", (e) => {
     state.lang = el.value; store("callkavach.lang", el.value); state.test = null;
     if (state.s?.source === "live" && isActive(state.s)) preloadClips(el.value);
     render();
-  } else if (el.id === "autoSpeak") { state.autoSpeak = el.checked; store("callkavach.autoSpeak", el.checked ? "1" : "0"); render(); }
+  } else if (el.id === "accessCode") { state.accessCode = el.value.trim(); store("callkavach.accessCode", state.accessCode); render(); }
+  else if (el.id === "autoSpeak") { state.autoSpeak = el.checked; store("callkavach.autoSpeak", el.checked ? "1" : "0"); render(); }
   else if (el.id === "sampleAloud") { state.sampleAloud = el.checked; }
   else if (el.id === "replaySound") { state.replay.sound = el.checked; if (!el.checked) stopClip(); render(); }
   else if (el.id === "replayFile" && el.files[0]) loadReplayFile(el.files[0]);
@@ -473,7 +475,7 @@ function currentSession() {
   return { ...freshSession(state.mode), sample: state.mode === "sample" ? SAMPLES.find((x) => x.id === state.sampleId) : null };
 }
 
-const FAILS = ["denied", "nomic", "unsupported", "micerror", "unreachable", "disconnected", "miclost", "loadfail", "servererror"];
+const FAILS = ["denied", "nomic", "unsupported", "micerror", "unreachable", "disconnected", "miclost", "loadfail", "servererror", "accessdenied", "quota"];
 
 function icon(kind, ink) {
   if (kind === "listening") return `<span style="position:relative;width:20px;height:20px;display:block"><span style="position:absolute;inset:0;border-radius:50%;background:${ink};animation:ckPulse 1.8s ease-out infinite"></span><span style="position:absolute;inset:0;border-radius:50%;background:${ink}"></span></span>`;
@@ -498,6 +500,8 @@ function warningView(s) {
     miclost: ["Microphone stopped — not listening", `The microphone was switched off or unplugged at ${fmt(s.disconnectedAt)}. Nothing after that was heard or checked.`],
     loadfail: ["Couldn’t load the sample audio", `${s.error}. Nothing was analysed.`],
     servererror: ["The server ended the session — not listening", `${s.error}. Nothing after this is being checked.`],
+    accessdenied: ["Access code needed — not listening", "This server needs an access code. Open Settings, enter the code you were given, then start again. Nothing was sent for transcription."],
+    quota: ["Session limit reached — not listening", `${s.error} Nothing was sent for transcription.`],
   };
   let tone = "neutral", ic = null, headline = "", body = "";
   const h = headlineFor(s);
@@ -660,7 +664,7 @@ function healthRows(s) {
     rows.push(mk("Speech-to-text", si.transcription === "complete" ? "Complete" : si.confirmed ? "Incomplete" : "Not confirmed", si.segments != null ? `${si.segments} segment(s)` : "", si.transcription === "complete" ? "off" : "bad"));
     rows.push(mk("Scam-tactic analysis", si.cutOff ? "Cut off at Stop" : si.analysisStatus === "complete" ? "Complete" : si.analysisStatus ? `Status: ${si.analysisStatus}` : "Not confirmed", `${s.analysed} segment(s) checked · ${s.calls} call(s)${s.cost ? ` · reported cost ₹${s.cost.toFixed(2)}` : ""}`, si.analysisStatus === "complete" ? "off" : "bad"));
   } else {
-    const bad = ["unreachable", "disconnected", "miclost", "servererror"].includes(ph);
+    const bad = ["unreachable", "disconnected", "miclost", "servererror", "accessdenied", "quota"].includes(ph);
     rows.push(mk("Speech-to-text", "Not running", "", bad ? "bad" : "off"));
     rows.push(mk("Scam-tactic analysis", "Not running", bad ? "Nothing is being checked" : "", bad ? "bad" : "off"));
   }
@@ -819,6 +823,8 @@ function render() {
   const cs = state.confirmSwitch;
   patch("confirm", cs ? `<div class="confirm"><span style="font-size:17px;font-weight:700;flex:1;min-width:240px">${state.s?.source === "live" ? "Live listening is on. Switching stops it and releases the microphone." : "A sample is being analysed. Switching stops it."}</span><div class="row" style="gap:8px"><button class="btn-primary" style="background:#17191E;color:#FBF9F4;min-height:48px;font-size:16px" data-act="confirmYes">${state.s?.source === "live" ? "Stop listening and switch" : "Stop and switch"}</button><button class="btn" data-act="confirmNo">Keep going</button></div></div>` : "");
   patch("settings", state.settingsOpen ? `<section class="card" style="margin-top:14px"><div class="card-h"><h3 class="t">Settings</h3><span class="sub">Saved on this device</span></div>
+    <label style="display:flex;flex-direction:column;gap:6px;font-size:15px;font-weight:700;max-width:360px">Access code (only if this server asks for one)
+      <input id="accessCode" type="password" autocomplete="off" value="${esc(state.accessCode)}" style="min-height:44px;padding:0 12px;border-radius:10px;border:1.5px solid #17191E;background:#fff;font-size:16px;font-weight:400"></label>
     <label class="row" style="gap:10px;font-size:16px"><input type="checkbox" id="autoSpeak" ${state.autoSpeak ? "checked" : ""} style="width:22px;height:22px;accent-color:#17191E">Play the spoken warning automatically on amber or red</label>
     <dl style="margin:0;display:grid;grid-template-columns:minmax(0,200px) minmax(0,1fr);gap:6px 14px;font-size:15px"><dt style="font-weight:700">Audio is sent to</dt><dd class="mono" style="margin:0">${esc(wsUrl())} (this page’s own server only)</dd><dt style="font-weight:700">Warning clips</dt><dd class="mono" style="margin:0">${CLIP_BASE}/{amber|red|test}-{hi|te|en}.mp3 or .wav</dd><dt style="font-weight:700">Evaluation report</dt><dd class="mono" style="margin:0">${REPORT_URL}</dd></dl>
     <p class="note">The app never computes a score. It shows only the level and evidence the backend sends. Nothing is saved on the server; a session log is saved only when you press “Save session log”, as a file on this device.</p></section>` : "");
