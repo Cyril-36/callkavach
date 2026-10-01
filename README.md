@@ -71,8 +71,19 @@ synthetic sample WAV ──────┴─> AudioWorklet → 16 kHz PCM ─We
 - **Live smoke run (synthetic, n = 4, not an accuracy measurement):** on 1 October, with code identical to commit `06b29d6`, four macOS text-to-speech calls went through the real pipeline in Sample mode. Setup, both passes and costs are in the owner's private QA record, which is kept out of Git. Results of the second pass:
   - a Telugu–English digital-arrest call and a Hindi–English KYC/OTP call: **red**;
   - a genuine bank call that says "never share your OTP" and a genuine delivery-code call: **no warning**;
-  - all four were fully analysed. Each analysis call took 4–7 s and was reported at ₹0.16–0.39.
+  - all four were fully analysed. Each analysis call took 4–7 s and was reported at 0.16–0.39 provider-reported cost units.
   - In the first pass, before the Stop fix, the genuine bank call was cut off at Stop and reported as INCOMPLETE, not as "no warning".
+- **Development replay result (synthetic text replay, n = 10, not phone audio, not an accuracy claim):** run on 1 October at commit `f356999` with prompt tactics-v1, on the 10 development pilot calls (Hindi–English and Telugu–English, 5 scam and 5 genuine):
+
+  | Measure | Result |
+  |---|---|
+  | Scam calls that reached red | 5/5 |
+  | Genuine calls with a red or amber warning | 0/5 |
+  | First warning (amber or red) before the scripted first dangerous request (a money transfer or OTP request) | 5/5, 6.8–22.5 s earlier; derived from the frozen run and the development ground truth |
+  | Red before that request | 0/5, because red usually fires on the request itself |
+  | **Calls with detector failures** | **2/10:** genuine calls with an 8 s analysis timeout, which showed "unavailable", not a warning |
+
+  Usage: 75 analysis calls, 13.92 in provider-reported cost units, partial. The pilot's language review (10/10 accepted) was recorded after the run. The raw report stays in the owner's private QA record; only the sanitised export is published.
 - **Development replay:** `backend/evaluation/run_pilot.py` measures RED recall, RED false alarms, warned-before-first-ask and amber rates on the synthetic multilingual pilot. Publish a result with `node frontend/app/export-eval-report.mjs RAW.json PUBLIC.json`. This keeps only numbers, status values and failure categories, and refuses an output path inside the repository. The server then serves that file through `CALLKAVACH_EVAL_REPORT` (see [DEPLOY.md](DEPLOY.md)), only after checking it is the sanitised form. Live results never go into Git. Until a result is published, no score is claimed.
 - **Not yet measured:** real speakerphone audio, phone-to-phone latency, and the planned 300-call held-out test (not built in time).
 

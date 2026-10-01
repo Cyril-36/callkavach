@@ -1328,3 +1328,16 @@ def test_files_under_frontend_eval_are_never_served(no_eval_env):
         other.unlink(missing_ok=True)
         if not existed:
             eval_dir.rmdir()
+
+
+def test_derived_early_warning_and_review_update_pass_only_as_plain_values():
+    import copy
+    ok = copy.deepcopy(PUBLIC_REPORT)
+    ok["first_warning_before_ask"] = {"numerator": 5, "denominator": 5, "lead_min_ms": 6776, "lead_max_ms": 22509,
+                                      "scam_calls_with_failures": 0, "basis": "synthetic_text_replay_frozen_run_plus_development_ground_truth"}
+    ok["review_update"] = "language review: 10 of 10 pilot calls accepted (docs/pilot-language-review.md, 1 Oct 2026)"
+    assert audio_ws.public_eval.validate(ok) is ok
+    for bad in ({**ok, "review_update": "SENTINEL; free text\nwith a newline"},
+                {**ok, "first_warning_before_ask": {**ok["first_warning_before_ask"], "quotes": ["SENTINEL"]}}):
+        with pytest.raises(audio_ws.public_eval.NotPublic):
+            audio_ws.public_eval.validate(bad)

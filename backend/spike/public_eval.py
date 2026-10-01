@@ -20,7 +20,8 @@ _METRICS = {"scam_recall", "false_alarm_rate", "warned_before_ask", "median_time
             "missed_scams", "scams_without_ask"}
 _AMBER = {"genuine_amber_warning_rate", "scam_amber_warning_rate"}
 _TOP = {"schema", "dataset", "timing_basis", "score_status", "review_status", "metrics", "amber_warning_rates",
-        "latency", "failure_calls", "reproducibility", "calls"}
+        "latency", "failure_calls", "reproducibility", "calls", "first_warning_before_ask", "review_update"}
+_BEFORE_ASK = {"numerator", "denominator", "lead_min_ms", "lead_max_ms", "scam_calls_with_failures", "basis"}
 _REPRO = {"repo_commit", "uncommitted_changes", "detector_commit", "provider", "model", "prompt_version",
           "run_started_at_utc", "run_completed_at_utc", "api_usage"}
 _USAGE = {"detector_requests", "reported_cost_total", "reported_cost_is_partial", "reported_cost_unit"}
@@ -68,6 +69,14 @@ def validate(report) -> dict:
         raise NotPublic(f"schema is not {PUBLIC_SCHEMA}")
     for k in ("dataset", "timing_basis", "score_status", "review_status", "failure_calls"):
         _scalar(report.get(k), k)
+    update = report.get("review_update")
+    if update is not None and not (isinstance(update, str) and re.match(r"^[\w .:+()/,-]{0,160}$", update)):
+        raise NotPublic("review_update is not a plain label")
+    before = report.get("first_warning_before_ask")
+    if before is not None:
+        _keys(before, _BEFORE_ASK, "first_warning_before_ask")
+        for k, v in before.items():
+            _scalar(v, f"first_warning_before_ask.{k}")
     metrics = report.get("metrics")
     _keys(metrics, {"overall", "by_language"}, "metrics")
     _metrics(metrics.get("overall"), _METRICS, "metrics.overall")

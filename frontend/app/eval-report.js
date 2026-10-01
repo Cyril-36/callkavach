@@ -43,13 +43,38 @@ export function failureKind(text) {
   return "other failure";
 }
 
-export function publicReport(raw) {
+// "First warning (amber or red) before the scripted first dangerous ask", derived reproducibly from the
+// frozen run's first_warning_at_ms and the development set's ground truth (the runner scores red only).
+// Every scam call with a labelled ask is in the denominator, including calls with detector failures.
+export function warningBeforeAsk(raw, groundTruth) {
+  const truth = new Map((Array.isArray(groundTruth) ? groundTruth : []).map((g) => [g.call_id, g]));
+  const ids = raw.calls.map((c) => c.call_id);
+  if (ids.length !== truth.size || ids.some((id) => !truth.has(id))) throw new ReportError("ground truth and run have different call IDs");
+  let numerator = 0, denominator = 0, withFailures = 0;
+  const leads = [];
+  for (const c of raw.calls) {
+    const g = truth.get(c.call_id);
+    if (g.label !== "scam" || typeof g.first_ask_at_ms !== "number") continue;
+    denominator++;
+    if ((c.failures || []).length) withFailures++;
+    if (typeof c.first_warning_at_ms === "number" && c.first_warning_at_ms < g.first_ask_at_ms) {
+      numerator++; leads.push(g.first_ask_at_ms - c.first_warning_at_ms);
+    }
+  }
+  return { numerator, denominator, lead_min_ms: leads.length ? Math.min(...leads) : null, lead_max_ms: leads.length ? Math.max(...leads) : null,
+    scam_calls_with_failures: withFailures, basis: "synthetic_text_replay_frozen_run_plus_development_ground_truth" };
+}
+
+export function publicReport(raw, { groundTruth = null, reviewUpdate = null } = {}) {
   if (!raw || typeof raw !== "object" || !raw.metrics || !Array.isArray(raw.calls)) {
     throw new ReportError("not a run_pilot.py report (expected metrics and calls)");
   }
   const rep = raw.reproducibility;
   const usage = rep && rep.api_usage;
   return {
+    // Added at export, not by the run: the run's own fields below are copied unchanged.
+    first_warning_before_ask: groundTruth ? warningBeforeAsk(raw, groundTruth) : null,
+    review_update: reviewUpdate === null ? null : label(reviewUpdate, 160),
     schema: PUBLIC_SCHEMA,
     dataset: label(raw.dataset),
     timing_basis: label(raw.timing_basis),
@@ -114,7 +139,8 @@ export function readReport(j) {
   const caveats = [];
   if (!rep) caveats.push("No reproducibility manifest: this is not a live run’s output, so treat every number as unverified.");
   if (j.timing_basis) caveats.push(`Timing basis: ${j.timing_basis.replace(/_/g, " ")}. Scripted text replay, not audio-to-warning latency.`);
-  if (j.score_status) caveats.push(`Score status: ${j.score_status.replace(/_/g, " ")}.`);
+  if (j.score_status) caveats.push(`Score status at the time of the run: ${j.score_status.replace(/_/g, " ")}.`);
+  if (j.review_update) caveats.push(`Since the run: ${j.review_update}.`);
   caveats.push(`${j.calls.length} development call(s). A small synthetic set: percentages are indicative, not an accuracy claim.`);
   const failed = Math.max(j.failure_calls || 0, j.calls.filter((c) => (c.failures || []).length).length);
   if (failed) caveats.push(`${failed} call(s) had detector failures; they stay in every denominator, and a dash in their row means "not known", not "no warning".`);
@@ -124,12 +150,15 @@ export function readReport(j) {
     provider: rep && rep.provider ? `${rep.provider} · ${rep.model}${rep.prompt_version ? ` · prompt ${rep.prompt_version}` : ""}` : "provider not recorded",
     commit: rep && rep.repo_commit ? `${String(rep.repo_commit).slice(0, 7)}${rep.uncommitted_changes ? " (with uncommitted changes)" : ""}` : "",
     when: rep ? rep.run_completed_at_utc : null,
-    cost: usage && typeof usage.reported_cost_total === "number" ? `${usage.reported_cost_total.toFixed(2)} (${usage.reported_cost_unit || "unit not stated"}${usage.reported_cost_is_partial ? ", partial" : ""})` : null,
+    cost: usage && typeof usage.reported_cost_total === "number" ? `${usage.reported_cost_total.toFixed(2)} provider-reported units (${usage.reported_cost_unit || "unit not stated"}${usage.reported_cost_is_partial ? "; partial: some calls reported no cost" : ""})` : null,
     caveats,
     tiles: [
       { label: "Scams that reached a RED alert", ...fraction(overall.scam_recall), sub: `${overall.missed_scams ?? "?"} missed` },
       { label: "Genuine calls with a RED false alarm", ...fraction(overall.false_alarm_rate), sub: "the warning a listener must never get wrongly", flag: overall.false_alarm_rate.numerator ? "Needs attention" : "" },
-      { label: "RED before the scripted first ask", ...fraction(overall.warned_before_ask), sub: `median time to red ${seconds(overall.median_time_to_alert_ms)} (replay clock)` },
+      ...(j.first_warning_before_ask ? [{ label: "First warning (amber or red) before the scripted first dangerous ask", ...fraction(j.first_warning_before_ask),
+        sub: `synthetic text replay, not phone audio · lead ${seconds(j.first_warning_before_ask.lead_min_ms)}–${seconds(j.first_warning_before_ask.lead_max_ms)}`
+          + ` · ${j.first_warning_before_ask.scam_calls_with_failures} of these calls had detector failures` }] : []),
+      { label: "RED before the scripted first ask", ...fraction(overall.warned_before_ask), sub: `median time to red ${seconds(overall.median_time_to_alert_ms)} (replay clock); red usually fires on the dangerous request itself` },
       { label: "Genuine calls with an AMBER warning", ...fraction(amber.genuine_amber_warning_rate), sub: "caution, not an accusation" },
     ],
     languages: Object.entries((j.metrics && j.metrics.by_language) || {}).map(([code, m]) => ({

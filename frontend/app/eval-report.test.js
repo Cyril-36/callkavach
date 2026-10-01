@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PUBLIC_SCHEMA, ReportError, failureKind, fraction, publicReport, readReport } from "./eval-report.js";
+import { PUBLIC_SCHEMA, ReportError, failureKind, fraction, publicReport, readReport, warningBeforeAsk } from "./eval-report.js";
 
 const rate = (numerator, denominator) => ({ numerator, denominator, rate: denominator ? numerator / denominator : null });
 const QUOTE = "SENTINEL-QUOTE अभी जो OTP आया है वो बताइए";
@@ -127,4 +127,29 @@ test("the export command refuses an output inside the repository, or no output a
     assert.ok(failed && failed.status === 2, `expected refusal for ${args.length} argument(s)`);
   }
   assert.match(String((() => { try { run(join(dir, "raw.json"), inRepo); } catch (e) { return e.stderr; } })()), /inside the repository/);
+});
+
+const TRUTH = [{ call_id: "c1", label: "scam", first_ask_at_ms: 12000 }, { call_id: "c2", label: "genuine", first_ask_at_ms: null }];
+
+test("first warning before the ask is derived from the frozen run and the ground truth", () => {
+  const w = warningBeforeAsk(RAW, TRUTH);
+  assert.deepEqual(w, { numerator: 1, denominator: 1, lead_min_ms: 2900, lead_max_ms: 2900, scam_calls_with_failures: 0,
+    basis: "synthetic_text_replay_frozen_run_plus_development_ground_truth" });
+  const late = warningBeforeAsk(RAW, [{ ...TRUTH[0], first_ask_at_ms: 5000 }, TRUTH[1]]);
+  assert.equal(late.numerator, 0, "a warning after the ask does not count");
+  assert.throws(() => warningBeforeAsk(RAW, [TRUTH[0]]), /different call IDs/);
+});
+
+test("the tab shows the derived figure with its basis and failures, and the review update as a later note", () => {
+  const pub = publicReport(RAW, { groundTruth: TRUTH, reviewUpdate: "language review: 10 of 10 pilot calls accepted (docs/pilot-language-review.md, 1 Oct 2026)" });
+  assert.equal(pub.score_status, RAW.score_status, "the run's own status is not altered");
+  const r = readReport(pub);
+  const tile = r.tiles.find((t) => t.label.startsWith("First warning"));
+  assert.equal(tile.frac, "1 / 1");
+  assert.match(tile.sub, /synthetic text replay, not phone audio/);
+  assert.match(tile.sub, /of these calls had detector failures/);
+  assert.match(r.caveats.join(" "), /Since the run: language review: 10 of 10/);
+  assert.match(r.caveats.join(" "), /at the time of the run: provisional/);
+  assert.match(r.cost, /provider-reported units/);
+  assert.equal(publicReport(RAW, { reviewUpdate: "free text; with\nnewline" }).review_update, null);
 });
