@@ -1,11 +1,14 @@
 """Reproducibility metadata must report returned usage without inventing costs."""
 
+import asyncio
+from pathlib import Path
 import re
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
-from backend.evaluation.run_pilot import api_usage, detector_commit, repo_state
+from backend.evaluation.run_pilot import api_usage, detector_commit, repo_state, report_path_error, run
 
 
 class RunPilotMetadataTests(unittest.TestCase):
@@ -50,3 +53,16 @@ class RunPilotMetadataTests(unittest.TestCase):
         self.assertFalse(api_usage([{"detector_summary": {"calls": 1},
                                      "risk_events": [calls[0]["risk_events"][0]]}])
                          ["reported_cost_is_partial"])
+    def test_report_path_is_outside_repo_before_provider_setup(self):
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            link = Path(tmp) / "repo-link"
+            link.symlink_to(root, target_is_directory=True)
+            for output in [root / "report.json", root / "backend" / "evaluation" / "report.json",
+                           link / "report.json"]:
+                self.assertIn("inside the repository", report_path_error(output))
+            self.assertIsNone(report_path_error(Path(tmp) / "report.json"))
+            with patch("backend.evaluation.run_pilot.live_components", side_effect=AssertionError("paid setup reached")):
+                with self.assertRaisesRegex(ValueError, "inside the repository"):
+                    asyncio.run(run(root / "report.json", 30))
+
