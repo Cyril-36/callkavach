@@ -32,7 +32,7 @@ Put the doubtful call on speaker, keep a phone or laptop running CallKavach next
 | **1 · Live microphone** | Real microphone → speech-to-text → detector |
 | **2 · Analyse sample audio** | A synthetic call WAV through the same real pipeline, compared with its label afterwards |
 | **3 · Recorded replay** | A session log saved from mode 1 or 2. Nothing runs; it's for presentations |
-| **Evaluation report** | Shows `frontend/app/eval/report.json` from the development replay runner, if one has been exported |
+| **Evaluation report** | Shows `frontend/app/eval/report.json`, a sanitised export of a development replay run (numbers only), if one has been published |
 
 **Run locally:**
 
@@ -72,7 +72,7 @@ synthetic sample WAV ──────┴─> AudioWorklet → 16 kHz PCM ─We
   - a Telugu–English digital-arrest call and a Hindi–English KYC/OTP call: **red**;
   - a genuine bank call that says "never share your OTP" and a genuine delivery-code call: **no warning**;
   - all four were fully analysed. Each analysis call took 4–7 s and was reported at ₹0.16–0.39.
-- **Development replay:** `backend/evaluation/run_pilot.py` measures RED recall, RED false alarms, warned-before-first-ask and amber rates on the synthetic multilingual pilot. Any exported result appears in the app's Evaluation tab with its caveats; until then, no score is claimed.
+- **Development replay:** `backend/evaluation/run_pilot.py` measures RED recall, RED false alarms, warned-before-first-ask and amber rates on the synthetic multilingual pilot. Publish a result with `node frontend/app/export-eval-report.mjs /tmp/callkavach-dev-replay.json`. This writes only numbers, status values and failure categories to `frontend/app/eval/report.json`. The raw report contains evidence quotes and stays outside the repository; the app refuses to show it. Until a result is published, no score is claimed.
 - **Not yet measured:** real speakerphone audio, phone-to-phone latency, and the planned 300-call held-out test (not built in time).
 
 ## Limitations

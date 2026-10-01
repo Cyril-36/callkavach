@@ -843,7 +843,7 @@ function evalView() {
     ${r.languages.length ? `<section class="card"><h3 class="t">By language</h3><div style="overflow-x:auto"><table class="tbl" style="min-width:560px"><thead><tr>${th("Language")}${th("Scams → red", 1)}${th("Genuine → red", 1)}${th("Red before ask", 1)}${th("Genuine → amber", 1)}</tr></thead><tbody>${r.languages.map((l) => `<tr>${td(l.lang, 0, 1)}${td(l.recall, 1)}${td(l.falseRed, 1)}${td(l.beforeAsk, 1)}${td(l.genuineAmber, 1)}</tr>`).join("")}</tbody></table></div></section>` : ""}
     <section class="card"><div class="row-between"><h3 class="t">Every call</h3>${r.latency ? `<span class="sub">${esc(r.latency.calls)} analysis calls · median ${esc(r.latency.verifier)} each · median delay after a segment ${esc(r.latency.delay)}</span>` : ""}</div>
       <div style="overflow-x:auto"><table class="tbl" style="min-width:560px"><thead><tr>${th("Call")}${th("Language")}${th("First warning", 1)}${th("First red", 1)}${th("Analysis")}${th("Failures")}</tr></thead><tbody>${r.calls.map((c) => `<tr>${td(c.id, 0, 1)}${td(c.lang)}${td(c.firstWarning, 1)}${td(c.firstRed, 1)}${td(c.status)}${td(c.failures || "none")}</tr>`).join("")}</tbody></table></div></section>
-    <p class="note">${esc(Object.entries(r.definitions).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}.`).join(" "))} Produced by backend/evaluation/run_pilot.py; the app shows the file as-is.</p>`;
+    <p class="note">${esc(Object.entries(r.definitions).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}.`).join(" "))} Exported from a backend/evaluation/run_pilot.py result by export-eval-report.mjs: numbers, status and failure categories only, no transcript text or evidence.</p>`;
 }
 
 const BANNERS = {
