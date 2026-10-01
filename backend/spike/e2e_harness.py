@@ -120,7 +120,9 @@ def summarise(run: dict) -> dict:
         for m in by_type("risk")]
     final = run["final"] or {}
     analysis = final.get("analysis") or {}
-    costs = [r["verifier"]["cost"] for r in risks if r["verifier"] and r["verifier"].get("cost") is not None]
+    cost_records = [r["verifier"] for r in risks if r["verifier"] and r["verifier"].get("cost") is not None]
+    costs = [v["cost"] for v in cost_records]
+    cost_unit = "INR (AICredits usage.cost)" if cost_records and all(v.get("provider") == "aicredits" for v in cost_records) else None
     latencies = [r["latency_s"] for r in risks if r["latency_s"] is not None]
     transcripts = [{"client_t": m["t"], "segment_id": m["msg"]["segment_id"], "text": m["msg"]["text"]}
                    for m in by_type("transcript")]
@@ -142,7 +144,7 @@ def summarise(run: dict) -> dict:
                       "first_red_at_ms": analysis.get("first_red_at_ms"), "analysis_status": analysis.get("status"),
                       "cut_off_by_stop_deadline": analysis.get("cut_off_by_stop_deadline"),
                       "calls": analysis.get("calls"), "call_latencies_s": latencies,
-                      "reported_cost": round(sum(costs), 4) if costs else None, "cost_unit": "INR (AICredits usage.cost)"},
+                      "reported_cost": round(sum(costs), 4) if costs else None, "cost_unit": cost_unit},
     }
 
 
