@@ -42,7 +42,7 @@ STT_PROVIDER=mock LLM_PROVIDER=off uv run --no-project --with "fastapi>=0.115" -
   --with "websockets>=13" --with httpx uvicorn --app-dir backend/spike audio_ws:app --host 127.0.0.1 --port 8766
 ```
 
-For the real pipeline, put `SARVAM_API_KEY`, `LLM_PROVIDER=aicredits`, `AICREDITS_API_KEY` and `AICREDITS_MODEL=gemini-2.5-flash` in `.env` (see `.env.example`), drop the two mock variables, and open http://127.0.0.1:8766/. To deploy, follow [DEPLOY.md](DEPLOY.md): one container, https, an access code and an hourly session cap.
+For the real pipeline, put `SARVAM_API_KEY`, `LLM_PROVIDER=aicredits`, `AICREDITS_API_KEY` and `AICREDITS_MODEL=gemini-2.5-flash` in `.env` (see `.env.example`), drop the two mock variables, and open http://127.0.0.1:8766/. To deploy, follow [DEPLOY.md](DEPLOY.md): one container, HTTPS, and a mandatory hourly session cap. The public demo has no access code.
 
 ## How it works
 

@@ -26,7 +26,7 @@ test("start message matches the relay contract and only supported languages are 
 test("the app sends no text message other than start and stop (the relay ends the session on anything else)", () => {
   const src = readFileSync(new URL("./app.js", import.meta.url), "utf8");
   const sends = [...src.matchAll(/\.send\(JSON\.stringify\(([^)]*\))\)/g)].map((m) => m[1]);
-  assert.deepEqual(sends.sort(), ["startMessage(langCode, state.accessCode)", "stopMessage()"]);
+  assert.deepEqual(sends.sort(), ["startMessage(langCode)", "stopMessage()"]);
   assert.doesNotMatch(src, /type: "(pause|resume|gap)"/);
 });
 
