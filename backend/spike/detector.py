@@ -102,6 +102,23 @@ class VerifierError(Exception):
     pass
 
 
+_LONG_TOKEN = re.compile(r"[A-Za-z0-9_\-]{24,}")
+
+
+def error_detail(response) -> str:
+    """Short, browser-safe text from a provider's error response.
+
+    The text reaches the browser in risk.error, so anything shaped like a key or token (24+ word
+    characters) is masked, and a non-object "error" field cannot raise.
+    """
+    try:
+        err = response.json().get("error")
+        detail = err.get("message", "") if isinstance(err, dict) else str(err or "")
+    except (ValueError, AttributeError):
+        detail = response.text
+    return _LONG_TOKEN.sub("[redacted]", str(detail)[:200])
+
+
 @dataclass
 class _Quote:
     segment_id: str
@@ -160,6 +177,10 @@ class SessionDetector:
 
     def idle(self) -> bool:
         return not self.pending and not self.in_flight
+
+    def cancel(self) -> None:
+        """Stop the worker now, synchronously: no result can be applied or emitted after this returns."""
+        self._task.cancel()
 
     async def close(self) -> None:
         self._task.cancel()

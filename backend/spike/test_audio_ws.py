@@ -1108,3 +1108,102 @@ def test_relay_refuses_to_start_with_an_invalid_deployment_config(env, message):
     done = subprocess.run([sys.executable, "-c", "import audio_ws"], cwd=os.path.dirname(audio_ws.__file__),
                           env={**clean, **env}, capture_output=True, text=True, timeout=60)
     assert done.returncode != 0 and "ConfigError" in done.stderr and message in done.stderr
+
+
+# --- review fixes: ordering, late results, setup leaks, idle sessions, provider error text ---
+
+@pytest.mark.asyncio
+async def test_final_segment_reaches_the_detector_before_the_browser_send_completes():
+    """A slow browser socket must not let Stop see an idle detector that has not been given the segment."""
+    added, sends = [], []
+
+    class SlowWs:
+        async def send_json(self, msg):
+            sends.append((msg["type"], len(added)))
+            await asyncio.sleep(0.05)
+
+    class OneFinal:
+        async def events(self):
+            yield signal("START_SPEECH")
+            yield data("utt-1", "OTP batao")
+
+    class Detector:
+        def add(self, seg):
+            added.append(seg.segment_id)
+
+    relay = audio_ws._Relay(SlowWs(), OneFinal())
+    relay.closing = True  # the scripted provider ends after one result
+    relay.detector = Detector()
+    await relay.read()
+    assert added == ["utt-1"]
+    assert ("transcript", 1) in sends, f"the detector had the segment before the transcript was sent: {sends}"
+
+
+def test_in_flight_call_cannot_deliver_after_the_stop_summary(client, monkeypatch):
+    """The call would finish during the provider-close wait; the summary said it was cancelled, so it must be."""
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.4)
+    monkeypatch.setattr(audio_ws, "PROVIDER_CLOSE_TIMEOUT_S", 1.0)
+    use_provider(monkeypatch, close_delay=1.0)
+    use_verifier(monkeypatch, red_for_new, delay=0.7)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("tell me the OTP")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        stopped, events = stop_and_collect(ws)
+    assert stopped["analysis"]["cut_off_by_stop_deadline"] is True
+    assert not [e for e in events if e["type"] == "risk" and e["level"] == "red"], "a cancelled call delivered red"
+    v = RecordingVerifier.instances[0]
+    assert v.completed == 0 and v.cancelled == 1
+
+
+def test_verifier_is_closed_when_transcription_is_unavailable(client, monkeypatch):
+    async def connect(language_code):
+        raise ProviderError("down")
+    monkeypatch.setattr(audio_ws, "connect_provider", connect)
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json(START)
+        expect_error(ws, "provider_unavailable", 1011)
+    assert RecordingVerifier.instances and RecordingVerifier.instances[0].closed
+
+
+def test_verifier_configuration_error_never_opens_a_provider_session(client, monkeypatch):
+    calls = counting_provider(monkeypatch)
+
+    def broken():
+        raise RuntimeError("cannot read .env")
+    monkeypatch.setattr(audio_ws, "verifier_factory", broken)
+    with pytest.raises(Exception):
+        with client.websocket_connect("/ws/audio") as ws:
+            ws.send_json(START)
+            ws.receive_json()
+    assert calls == [], "a paid transcription session was opened before setup failed"
+    wait_for_no_sessions()
+
+
+def test_a_silent_client_cannot_hold_a_transcription_session(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "RECEIVE_IDLE_TIMEOUT_S", 0.2)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        msg = expect_error(ws, "idle_timeout", 1008)
+    assert "No audio" in msg["message"]
+    wait_for_no_sessions()
+    assert FakeProvider.instances[0].close_called
+
+
+def test_provider_error_text_is_safe_for_the_browser():
+    from detector import error_detail
+
+    class Resp:
+        def __init__(self, body, text=""):
+            self.body, self.text = body, text
+
+        def json(self):
+            if self.body is None:
+                raise ValueError("not json")
+            return self.body
+    key = "sk-" + "a1B2c3D4" * 5
+    assert "[redacted]" in error_detail(Resp({"error": {"message": f"Invalid API key {key}"}}))
+    assert key not in error_detail(Resp({"error": {"message": f"Invalid API key {key}"}}))
+    assert error_detail(Resp({"error": "quota exceeded"})) == "quota exceeded"  # a string error cannot raise
+    assert error_detail(Resp(None, text="<html>Bad gateway</html>")) == "<html>Bad gateway</html>"
+    assert "exceeded your current quota" in error_detail(Resp({"error": {"message": "You exceeded your current quota"}}))

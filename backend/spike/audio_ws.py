@@ -59,6 +59,7 @@ START_TIMEOUT_S = 10.0
 MAX_QUEUED_SECONDS = 5.0  # audio waiting to reach the provider; beyond this, frames are dropped
 FINALIZE_DEADLINE_S = 6.0  # whole Stop budget on the server: drain, flush, final results. Browser waits 8 s.
 FINALIZE_SETTLE_S = 1.0  # after the flush, the provider must be quiet this long with nothing open
+RECEIVE_IDLE_TIMEOUT_S = 30.0  # after start the browser sends a frame every 100 ms, even silence while muted
 PROVIDER_CLOSE_TIMEOUT_S = 1.0  # bounded provider shutdown: 6 s + 1 s stays inside the browser's 8 s
 connect_provider = default_connector()
 verifier_factory = make_verifier  # returns (verifier, None) or (None, reason); replaced in tests
@@ -368,14 +369,19 @@ async def _session(ws: WebSocket) -> None:
                                              "has been reached. Try again later.", 1013)
             return
         _session_starts.append(now)
+    # The verifier is built before the paid transcription session opens, so a configuration error here
+    # can never leave a provider socket behind.
+    verifier, detector_unavailable = verifier_factory()
     try:
         provider = await connect_provider(language)
     except ProviderError as e:
+        if verifier:
+            await verifier.close()
         await _fail(ws, "provider_unavailable", f"Transcription unavailable: {e}", 1011)
         return
 
     relay = _Relay(ws, provider)
-    verifier, relay.detector_unavailable = verifier_factory()
+    relay.detector_unavailable = detector_unavailable
     if verifier:  # one session clock for segment receive times and risk emission times
         relay.detector = SessionDetector(verifier, send=relay.send_built, clock=relay.session_ms,
                                          call_timeout_s=DETECTOR_CALL_TIMEOUT_S)
@@ -405,7 +411,11 @@ async def _session(ws: WebSocket) -> None:
 async def _receive_audio(ws: WebSocket, relay: _Relay) -> None:
     frames = samples = 0
     while True:
-        msg = await ws.receive()
+        try:
+            msg = await asyncio.wait_for(ws.receive(), RECEIVE_IDLE_TIMEOUT_S)
+        except asyncio.TimeoutError:  # a silent client must not hold a paid transcription session open
+            await _fail(ws, "idle_timeout", f"No audio for {RECEIVE_IDLE_TIMEOUT_S:g} s; session closed.", 1008)
+            return
         if msg["type"] == "websocket.disconnect" or relay.failure:
             return
         data = msg.get("bytes")
@@ -468,6 +478,11 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
     if not relay.settled(loop.time()) and not reasons:
         # Every expected final arrived, but the provider was still sending when the deadline passed.
         reasons.append(f"the transcription provider had not settled within {FINALIZE_DEADLINE_S:g} s of stopping")
+    # Summarise, then stop the detector with no await in between: whatever the summary calls cancelled
+    # or never sent can no longer produce a risk event, before or after `stopped`.
+    analysis = _analysis_summary(relay) if relay.detector else {"status": "unavailable", "error": relay.detector_unavailable}
+    if relay.detector:
+        relay.detector.cancel()
     relay.closing = True
     close = relay.close_provider()
     await asyncio.wait([close], timeout=PROVIDER_CLOSE_TIMEOUT_S)
@@ -479,8 +494,7 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
                       "transcription": "incomplete" if reasons else "complete",
                       "reason": "; ".join(reasons) or None,
                       "provider_cleanup": cleanup,
-                      "analysis": _analysis_summary(relay) if relay.detector else
-                      {"status": "unavailable", "error": relay.detector_unavailable}})
+                      "analysis": analysis})
     await ws.close(code=1000)
 
 
