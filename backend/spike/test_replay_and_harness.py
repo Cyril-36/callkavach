@@ -206,3 +206,17 @@ def test_allow_flag_lets_an_in_repo_path_past_the_check(harness, tmp_path, monke
     monkeypatch.setattr(harness, "CASES", {"x": (str(wav), "te-IN", "test")})
     with pytest.raises(AssertionError, match="checked before any setup"):
         harness.main(["--json", str(harness.REPO_ROOT / "r.json"), "--allow-report-in-repo", "--cases", "x"])
+
+
+def test_every_sample_in_the_app_and_harness_has_a_committed_wav():
+    """Sample mode on a deployed server needs the WAVs; the app list and the harness cases must agree."""
+    import re
+    import e2e_harness
+    app_js = (e2e_harness.REPO_ROOT / "frontend" / "app" / "app.js").read_text(encoding="utf-8")
+    app_ids = re.findall(r'\{ id: "(\w+)", title:', app_js)
+    assert len(app_ids) == len(set(app_ids)) >= 11
+    assert set(app_ids) == set(e2e_harness.CASES), "app samples and harness cases differ"
+    for name, (wav, language, _note) in e2e_harness.CASES.items():
+        path = e2e_harness.HERE / "samples" / wav
+        assert path.is_file() and path.stat().st_size > 100_000, f"missing or empty {wav}"
+        assert language == ("te-IN" if name.startswith("te_") else "hi-IN"), name

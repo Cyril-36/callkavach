@@ -48,6 +48,13 @@ CASES = {  # name: (wav in samples/, language, note for the reader only)
     "hi_en_kyc": ("hi_en_kyc.wav", "hi-IN", "synthetic scam: bank claim, account block, OTP request"),
     "hi_en_bank_genuine": ("hi_en_bank_genuine.wav", "hi-IN", "synthetic genuine: declined card, never share OTP"),
     "hi_en_delivery_genuine": ("hi_en_delivery_genuine.wav", "hi-IN", "synthetic genuine: delivery code at the door"),
+    "te_en_customs_parcel": ("te_en_customs_parcel.wav", "te-IN", "synthetic scam: courier, customs, police threat, secrecy, fine"),
+    "te_en_power_cut_scam": ("te_en_power_cut_scam.wav", "te-IN", "synthetic scam: electricity disconnection, AnyDesk install"),
+    "te_en_power_cut_notice": ("te_en_power_cut_notice.wav", "te-IN", "synthetic genuine: planned maintenance, nothing to pay"),
+    "te_en_bank_callback": ("te_en_bank_callback.wav", "te-IN", "synthetic genuine: complaint callback, never share OTP"),
+    "hi_en_upi_refund": ("hi_en_upi_refund.wav", "hi-IN", "synthetic scam: refund via UPI collect request and PIN"),
+    "hi_en_job_fee": ("hi_en_job_fee.wav", "hi-IN", "synthetic scam: task job with registration fee (no credential ask)"),
+    "hi_en_emi_reminder": ("hi_en_emi_reminder.wav", "hi-IN", "synthetic genuine: EMI due date and late fee, nothing sensitive"),
 }
 
 
