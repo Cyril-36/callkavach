@@ -12,7 +12,7 @@ Scope: Harshit's non-API handoff on `harshit/non-api-handoff`, based on `main` c
 | Browser audio transport unit tests | `node --test frontend/spike/resample.test.js frontend/spike/pcm-sender.test.js` | 15 passed after rerunning outside the restricted process sandbox; first attempt could not spawn Node workers (`EPERM`). No frontend files were changed. |
 | Backend spike tests | `python -m pytest -q backend/spike -p pytest_asyncio -p no:cacheprovider --disable-warnings --tb=short` with temporary `pytest-asyncio` on `PYTHONPATH` | 161 passed, 2 setup/teardown errors. Pytest's `PYTEST_CURRENT_TEST` update raised `ValueError: the environment variable is longer than 32767 characters` for two long parameter names in `test_invalid_frames_are_rejected`; those two test bodies did not execute. A focused run excluding that parametrized test yielded 159 passed, 3 deselected. This is **not** a wholly passing backend suite. The dependency was installed to a temporary directory, not to the repository. |
 | Static warning clips | Python `wave` read all six `assets/warnings/*.wav`; Windows `System.Media.SoundPlayer.PlaySync()` played each | Each decoded as mono 22,050 Hz, 16-bit PCM with nonzero samples and played without a local error. Human pronunciation and browser playback are pending. |
-| Browser capture lifecycle | Served `backend/spike/audio_ws.py` locally with `STT_PROVIDER=mock` and `LLM_PROVIDER=off`, then opened `http://127.0.0.1:8766/lifecycle.test.html` in the in-app browser. | The page reported **14 failures**, each a timeout with status still `Listening ...`. The test uses a synthetic oscillator; it did not capture real microphone audio or call a provider. This result needs a visible-browser reproduction/diagnosis before claiming browser lifecycle QA passed. |
+| Browser capture lifecycle | Served `backend/spike/audio_ws.py` locally with `STT_PROVIDER=mock` and `LLM_PROVIDER=off`, then opened `http://127.0.0.1:8766/lifecycle.test.html` in the in-app browser. | The first run reported **14 failures**, each a timeout with status still `Listening ...`. A visible in-app browser retry also timed out after reaching `Listening`; the server accepted a WebSocket but the page did not show received samples. The test uses a synthetic oscillator; it did not capture real microphone audio or call a provider. The cause remains undiagnosed, so browser lifecycle QA has not passed. |
 
 ## Device and submission checklist
 
@@ -29,7 +29,7 @@ Scope: Harshit's non-API handoff on `harshit/non-api-handoff`, based on `main` c
 
 ## Independent PR review for Cyril
 
-Reviewed the diffs against `main` at the following heads. This is a review record, **not** a GitHub approval or posted comment. GitHub CLI authentication for `Harshit-ambati` was invalid during this check, so these findings still need to be transferred to the relevant PR before merge.
+Reviewed the diffs against `main` at the following heads. This record is **not** a GitHub approval. The findings were also posted on [PR #11](https://github.com/Cyril-36/callkavach/pull/11#issuecomment-5925717020) and [PR #12](https://github.com/Cyril-36/callkavach/pull/12#issuecomment-5925721901) for Cyril.
 
 ### [PR #11 — evaluation runner](https://github.com/Cyril-36/callkavach/pull/11), head `565f9cef`
 
@@ -45,4 +45,4 @@ Reviewed the diffs against `main` at the following heads. This is a review recor
 
 ## Merge access observed
 
-`OCT1-TEAM-HANDOFF.md` says Harshit has collaborator write access, but a live merge-button check was not possible with the invalid GitHub CLI credential and signed-out browser session. PR #11 is draft. PR #12 needs Cyril's current code-owner approval and other branch-rule conditions before Harshit could merge it. No merge was attempted.
+The authenticated GitHub permission endpoint returned `write` for `Harshit-ambati`. At this check, PR #11 was draft and PR #12 reported `mergeable: MERGEABLE`, `mergeStateStatus: BLOCKED`, and `reviewDecision: REVIEW_REQUIRED`; its GitGuardian check had succeeded. Write permission allows Harshit to operate an eligible merge, but PR #12 is currently blocked by required review. Cyril's current code-owner approval and the other branch-rule conditions remain necessary. No merge was attempted.
