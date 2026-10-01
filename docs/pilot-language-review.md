@@ -2,7 +2,7 @@
 
 Date prepared: 1 October 2026. Scope: the ten **synthetic development** calls in `backend/evaluation/data/multilingual_pilot_transcripts.json`, joined by opaque `call_id` to `multilingual_pilot_ground_truth.json` and checked against development `families.json`. No held-out dialogue or result was inspected or used to tune a label. Times below are scripted segment starts, not measured speech or alert emission times.
 
-This is an evidence-based **preliminary review**, not a completed human fluency review. No person's Hindi or Telugu fluency, identity, or approval has been verified. The earlier `MULTILINGUAL_PILOT_REVIEW.md` also records independent review as pending. Accordingly, **zero of ten calls are accepted as language-reviewed**. A fluent reviewer must listen/read each complete call, decide `accepted` or `needs correction`, record a name and date, and check the proposed notes below. The fixture and ground truth are unchanged.
+This is an evidence-based **preliminary review**, not a completed call-by-call language review. Harshit-ambati confirmed on 1 October 2026 that he is fluent in Hindi and Telugu and approved the separate warning clips; he has not yet given decisions for these ten calls. The earlier `MULTILINGUAL_PILOT_REVIEW.md` also records independent call review as pending. Accordingly, **zero of ten calls are accepted as language-reviewed**. Harshit must read each complete call, decide `accepted` or `needs correction`, and check the proposed notes below. The fixture and ground truth are unchanged.
 
 | Call | Language; ground-truth label | First dangerous ask in truth | Preliminary label and ask assessment from text | Code mixing / naturalness item for fluent reviewer | Human reviewer; decision |
 | --- | --- | --- | --- | --- | --- |
@@ -23,5 +23,5 @@ Ask independent fluent Hindi-English and Telugu-English reviewers to record thei
 
 | Language | Fluent reviewer and date | Calls accepted | Calls needing correction | Unresolved issues |
 | --- | --- | --- | --- | --- |
-| Hindi-English | Pending | 0/4 confirmed | Undetermined | Wording and label/ask signoff pending |
-| Telugu-English | Pending | 0/6 confirmed | Undetermined | Wording and label/ask signoff pending |
+| Hindi-English | Harshit-ambati, 1 October 2026; call decisions pending | 0/4 confirmed | Undetermined | Naturalness and label/ask signoff pending |
+| Telugu-English | Harshit-ambati, 1 October 2026; call decisions pending | 0/6 confirmed | Undetermined | Naturalness and label/ask signoff pending |
