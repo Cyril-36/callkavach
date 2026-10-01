@@ -175,3 +175,17 @@ test("on-screen warning text is exactly the reviewed copy in docs/warning-copy.m
   for (const [, text, key] of rows) assert.equal(WARNING_COPY[key], text, key);
   for (const lang of LANGS.map((l) => l.code)) for (const level of ["amber", "red"]) assert.ok(WARNING_COPY[`${level}-${lang}`]);
 });
+
+test("time muted for warning playback is reported as unchecked", () => {
+  const s = { ...listening(), gaps: [{ t: 10, dur: 12.4, source: "playback" }] };
+  const si = readStopped(stopped(), s);
+  assert.equal(si.complete, false);
+  assert.match(si.problems.map((p) => p.text).join(" "), /12\.4 s was muted/);
+});
+
+test("the stop summary can raise the level but never lower it", () => {
+  let s = reduce(listening(), stopped({}, { level: "red" }), 10);
+  assert.equal(s.level, "red", "a red the browser missed is still shown");
+  s = reduce(reduce(listening(), risk({ level: "amber" }), 5), stopped({}, { level: "none" }), 10);
+  assert.equal(s.level, "amber");
+});

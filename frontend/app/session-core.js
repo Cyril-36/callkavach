@@ -108,8 +108,12 @@ export function reduce(s, m, t) {
       if (m.code === "access_denied") return { ...s, phase: "accessdenied", connection: "closed", error: m.message || "Access code missing or wrong." };
       if (m.code === "session_quota") return { ...s, phase: "quota", connection: "closed", error: m.message || "Session limit reached." };
       return { ...s, phase: "servererror", connection: "closed", error: m.message || m.code || "The server reported an error." };
-    case "stopped":
-      return { ...s, phase: "stopped", connection: "closed", speaking: false, stopInfo: readStopped(m, s) };
+    case "stopped": {
+      const stopInfo = readStopped(m, s);
+      // The final summary can only confirm or raise the level seen in risk events, never lower it.
+      const level = LEVELS.indexOf(stopInfo.level) > LEVELS.indexOf(s.level) ? stopInfo.level : s.level;
+      return { ...s, phase: "stopped", connection: "closed", speaking: false, level, stopInfo };
+    }
     default:
       return s;
   }
@@ -174,6 +178,8 @@ export function readStopped(m, s = {}) {
   }
   if (serverDropped > 0) problems.push({ tag: "GAP", text: `${serverDropped.toFixed(1)} s of audio was dropped by the server and never transcribed.` });
   if (clientDropped > 0) problems.push({ tag: "GAP", text: `${clientDropped.toFixed(1)} s of audio was never sent (connection too slow).` });
+  const muted = (s.gaps || []).filter((g) => g.source === "playback").reduce((n, g) => n + g.dur, 0);
+  if (muted > 0) problems.push({ tag: "MUTED", text: `${muted.toFixed(1)} s was muted while warnings played, so anything said then was not checked.` });
   return {
     confirmed: true,
     complete: problems.length === 0,

@@ -57,8 +57,9 @@ function wsUrl() { return `${location.protocol === "https:" ? "wss" : "ws"}://${
 function record(m, t) { if (rt) rt.log.push({ t: Math.round(t * 1000) / 1000, m }); }
 
 function apply(m) {
+  if (m.type === "ack") return; // ten per second; they change nothing on screen
   const t = now();
-  if (m.type !== "ack") record(m, t);
+  record(m, t);
   let s = reduce(state.s, m, t);
   const ev = s.newEvent;
   if ("newEvent" in s) { s = { ...s }; delete s.newEvent; }
@@ -156,6 +157,8 @@ async function startLive() {
   state.playback = state.test = state.share = null; state.silenced = false;
   const r = rt = { kind: "live", audioT: 0, log: [], startedAt: new Date().toISOString(), lang: state.lang };
   setS({ ...freshSession("live"), phase: "permission", mic: "asking" });
+  // Created inside the tap: iOS Safari only lets an AudioContext run if it starts in a user gesture.
+  try { r.ctx = new AudioContext(); r.ctx.resume(); } catch {}
   ensureOut(); preloadClips(state.lang);
   if (!navigator.mediaDevices?.getUserMedia) { fail("unsupported", null, { mic: "unsupported" }); return; }
   let stream;
@@ -173,19 +176,25 @@ async function startLive() {
   setS({ ...state.s, phase: "connecting", mic: "on", connection: "connecting" });
   r.onReady = async () => {
     try {
-      r.ctx = new AudioContext();
+      if (!r.ctx || r.ctx.state === "closed") r.ctx = new AudioContext();
+      if (r.ctx.state !== "running") r.ctx.resume().catch(() => {});
       await r.ctx.audioWorklet.addModule(new URL("../spike/pcm-worklet.js", import.meta.url));
       if (rt !== r || state.s.phase !== "listening") return; // stopped or failed during setup
       r.source = r.ctx.createMediaStreamSource(stream);
       r.node = new AudioWorkletNode(r.ctx, "pcm-capture");
       const resampler = new Resampler(r.ctx.sampleRate, SAMPLE_RATE);
       r.node.port.onmessage = ({ data }) => {
+        r.lastBlockAt = performance.now();
         if (rt !== r || state.s.phase !== "listening") return;
         let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
         r.level = Math.min(1, Math.sqrt(sum / data.length) * 7);
         sendPcm(r, toInt16(resampler.process(data)));
       };
       r.source.connect(r.node);
+      // Some browsers (Safari) only run a node that leads to the output; a muted gain keeps it silent.
+      const sink = r.ctx.createGain(); sink.gain.value = 0;
+      r.node.connect(sink); sink.connect(r.ctx.destination);
+      r.captureAt = performance.now();
     } catch (e) { // after Stop the context is closed, so setup may throw; Stop then finishes on its own
       if (rt === r && state.s.phase === "listening") fail("micerror", `audio processing failed: ${e.message}`, { mic: "error" });
     }
@@ -203,13 +212,17 @@ async function stopSession() {
     setS({ ...s, phase: "stopped", connection: s.connection === "none" ? "none" : "closed", mic: s.source === "live" ? "released" : s.mic, stopInfo: { early: true, confirmed: false, complete: false, problems: [] } });
     return;
   }
-  if (s.phase !== "listening") return;
+  if (s.phase !== "listening" || r.stopping) return;
+  r.stopping = true; // a second tap must not start a second tail or send stop twice
   clearInterval(r.streamTimer);
   stopClip();
   try { r.aloud?.stop(); } catch {}
-  let micOk = true;
-  if (r.kind === "live") micOk = await releaseMic(r);
-  setS({ ...state.s, phase: "stopping", mic: r.kind === "live" ? (micOk ? "released" : "release-failed") : state.s.mic, tail: true });
+  setS({ ...state.s, phase: "stopping", tail: true });
+  if (r.kind === "live") {
+    const micOk = await releaseMic(r);
+    if (rt !== r) return; // the session failed or ended while the microphone was released
+    patchS({ mic: micOk ? "released" : "release-failed" });
+  }
   let sent = 0; const tail = STOP_TAIL_SILENCE_S * SAMPLE_RATE, cap = tail + STOP_DRAIN_MAX_S * SAMPLE_RATE;
   r.tailTimer = setInterval(() => {
     if (rt !== r) return clearInterval(r.tailTimer);
@@ -236,10 +249,11 @@ function finish(stopInfo) {
 async function analyseSample() {
   const smp = SAMPLES.find((x) => x.id === state.sampleId);
   teardown();
-  state.playback = state.share = null;
+  state.playback = state.share = null; state.silenced = false;
   const r = rt = { kind: "sample", audioT: 0, log: [], startedAt: new Date().toISOString(), lang: smp.lang, sample: smp.id };
   setS({ ...freshSession("sample"), phase: "loading", sample: smp });
   const o = ensureOut();
+  preloadClips(smp.lang); // the warning is spoken in the sample's language
   try {
     const res = await fetch(`/samples/${smp.id}.wav`);
     if (!res.ok) throw new Error(`HTTP ${res.status} — generate it with backend/spike/make_samples.sh`);
@@ -269,14 +283,16 @@ async function analyseSample() {
 // ---------------------------------------------------------------- warning clips
 function ensureOut() {
   if (!out || out.state === "closed") out = new AudioContext();
-  if (out.state === "suspended") out.resume();
+  if (out.state !== "running" && out.state !== "closed") out.resume().catch(() => {}); // iOS also reports "interrupted"
   return out;
 }
 function loadClip(lang, name) {
   const key = `${name}-${lang}`;
   if (!clips[key]) {
-    const get = (ext) => fetch(`${CLIP_BASE}/${name}-${lang}.${ext}`).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); });
-    clips[key] = get("mp3").catch(() => get("wav")).then((ab) => ensureOut().decodeAudioData(ab));
+    const get = (ext) => fetch(`${CLIP_BASE}/${name}-${lang}.${ext}`)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+      .then((ab) => ensureOut().decodeAudioData(ab));
+    clips[key] = get("wav").catch(() => get("mp3")); // the shipped clips are WAV
     clips[key].catch(() => { delete clips[key]; });
   }
   return clips[key];
@@ -287,7 +303,7 @@ function preloadClips(lang) {
     .then(() => { state.clipStatus[lang] = "ok"; render(); })
     .catch(() => { state.clipStatus[lang] = "missing"; render(); });
 }
-async function playClip(level, why, lang = state.lang) {
+async function playClip(level, why, lang = (rt && rt.lang) || state.lang) {
   stopClip();
   const token = {}; state.clipTok = token;
   state.playback = { state: "loading", level, why, lang };
@@ -308,11 +324,14 @@ async function playClip(level, why, lang = state.lang) {
   }
   if (state.clipTok !== token) return;
   const r = rt;
-  const mute = !!(r && r.kind === "live" && state.s?.phase === "listening" && why !== "replay");
+  // Mute the microphone only if the clip will really play; a suspended output never ends the clip.
+  const mute = !!(r && r.kind === "live" && state.s?.phase === "listening" && why !== "replay" && ensureOut().state === "running");
   const t0 = mute ? r.audioT : 0;
   if (mute) { r.muted = true; patchS({ mic: "paused" }); }
   const node = ensureOut().createBufferSource(); node.buffer = buf; node.connect(out.destination);
+  const guard = setTimeout(() => done("ended"), (buf.duration + 1) * 1000); // if "ended" never fires
   const done = (how) => {
+    clearTimeout(guard);
     if (state.clipTok !== token) return;
     state.clipTok = null; state.clipNode = state.clipDone = null;
     if (mute && rt === r && r.muted) {
@@ -400,10 +419,8 @@ function share(level, tactics) {
       .catch(() => { state.share = { text, status: "Not sent. You can copy this message:" }; render(); });
     return;
   }
-  let copied = false;
-  try { navigator.clipboard.writeText(text); copied = true; } catch {}
-  state.share = { text, status: copied ? "Copied. Paste it into a message to someone you trust:" : "Copy this message and send it to someone you trust:" };
-  render();
+  const show = (copied) => { state.share = { text, status: copied ? "Copied. Paste it into a message to someone you trust:" : "Copy this message and send it to someone you trust:" }; render(); };
+  Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(() => show(true), () => show(false));
 }
 
 const ACTIONS = {
@@ -458,10 +475,20 @@ document.addEventListener("input", (e) => {
 window.addEventListener("beforeunload", () => teardown());
 
 // ---------------------------------------------------------------- ticker
+const MIC_STALL_MS = 4000; // no audio blocks for this long while listening: the microphone has stopped
+const AUTO_STOP_AUDIO_S = 870; // the relay ends a session at 900 s of audio; stop cleanly before that
 let lastTick = performance.now();
 setInterval(() => {
   const t = performance.now(), dt = Math.min(0.5, (t - lastTick) / 1000); lastTick = t;
   let dirty = false;
+  if (rt && state.s?.phase === "listening") {
+    // A locked screen or a backgrounded tab can stop capture without any error event.
+    if (rt.kind === "live" && rt.captureAt && t - (rt.lastBlockAt || rt.captureAt) > MIC_STALL_MS) {
+      fail("miclost", null, { disconnectedAt: rt.audioT });
+      return;
+    }
+    if (rt.audioT >= AUTO_STOP_AUDIO_S) { state.s = { ...state.s, autoStopped: true }; stopSession(); }
+  }
   if (rt && state.s && ["listening", "stopping"].includes(state.s.phase)) {
     state.s = { ...state.s, audioT: rt.audioT, backlog: !!rt.backlog }; state.meter = rt.level || 0; dirty = true;
   }
@@ -508,7 +535,7 @@ function warningView(s) {
     micerror: ["Microphone couldn’t start — not listening", s.error || "Another app may be using it. Close it and tap Try again."],
     unreachable: ["Can’t reach the analysis server — not listening", `Nothing is being transcribed or checked (${s.error || "no connection"}). Check the internet connection and try again.`],
     disconnected: ["Disconnected — not listening", `The connection dropped at ${fmt(s.disconnectedAt)} (${s.error || "unknown reason"}). Nothing after that was heard or checked.`],
-    miclost: ["Microphone stopped — not listening", `The microphone was switched off or unplugged at ${fmt(s.disconnectedAt)}. Nothing after that was heard or checked.`],
+    miclost: ["Microphone stopped — not listening", `The microphone stopped delivering audio at ${fmt(s.disconnectedAt)}: it was switched off or unplugged, the screen locked, or another app took it. Nothing after that was heard or checked. Keep this screen open and unlocked while listening.`],
     loadfail: ["Couldn’t load the sample audio", `${s.error}. Nothing was analysed.`],
     servererror: ["The server ended the session — not listening", `${s.error}. Nothing after this is being checked.`],
     accessdenied: ["Access code needed — not listening", "This server needs an access code. Open Settings, enter the code you were given, then start again. Nothing was sent for transcription."],
@@ -530,7 +557,7 @@ function warningView(s) {
   } else if (ph === "listening") {
     ic = "listening";
     if (s.analysis === "waiting") { headline = "Listening — no warning yet"; body = "Words are checked once each sentence is transcribed. “No warning yet” does not mean the call is safe."; }
-    else if (src === "sample") { headline = "Analysing sample — no warning yet"; body = `Sent ${fmt(t)} of ${fmt(s.sampleDur)} to speech-to-text and the detector.`; }
+    else if (src === "sample") { headline = "Analysing sample — no warning yet"; body = "The sample is streamed in real time through the same speech-to-text and detector as the microphone."; }
     else { headline = "No warning yet"; body = "“No warning yet” does not mean the call is safe. Never share an OTP, PIN or password with a caller."; }
   } else if (ph === "stopping") {
     ic = "busy"; headline = src === "sample" ? "Finishing analysis…" : "Stopping…";
@@ -539,16 +566,19 @@ function warningView(s) {
   const c = TONES[tone], ink = c.ink;
   const pats = [c.pattern, src === "replay" ? (tone === "neutral" ? "repeating-linear-gradient(-45deg,rgba(91,59,158,.08) 0 14px,transparent 14px 28px)" : "repeating-linear-gradient(-45deg,rgba(255,255,255,.13) 0 14px,transparent 14px 28px)") : ""].filter(Boolean);
   const modeColor = MODE_COLOR[src];
-  const kicker = src === "live" ? (ph === "listening" ? `Listening · ${fmt(t)}` : ph === "stopping" ? "Stopping" : ph === "stopped" ? "Stopped · not listening" : busy ? "Not listening yet" : "Not listening")
-    : src === "sample" ? `${smp ? smp.title : "No sample"} · ${ph === "listening" ? fmt(t) : ph}` : log ? `Recording time ${fmt(t)} of ${fmt(replayDur(log))}` : "No recording loaded";
+  // Ticking values (the clock) are placeholders filled in by updateLive(), so this card, and its buttons,
+  // are only rebuilt when something actually changes, never five times a second.
+  const clock = '<span data-live="clock"></span>';
+  const kicker = src === "live" ? (ph === "listening" ? `Listening · ${clock}` : ph === "stopping" ? "Stopping" : ph === "stopped" ? "Stopped · not listening" : busy ? "Not listening yet" : "Not listening")
+    : src === "sample" ? `${esc(smp ? smp.title : "No sample")} · ${ph === "listening" ? clock : esc(ph)}` : log ? `Recording time ${clock} of ${fmt(replayDur(log))}` : "No recording loaded";
   const band = src === "replay" && log ? `RECORDED ${new Date(log.recorded_at).toLocaleString("en-IN")} — this is not happening now. Nothing is listening.`
     : src === "sample" && smp && ph !== "idle" ? `SAMPLE: “${smp.title}” (${smp.kind}, ${smp.langName}) — not a live call.` : "";
   const running = ["listening", "stopping", "stopped"].includes(ph);
   const knowable = running && !FAILS.includes(ph) && s.analysis !== "unavailable" && s.level !== "unknown" && !(ph === "stopped" && s.stopInfo && !s.stopInfo.complete && s.level === "none");
   const cur = s.level === "amber" || s.level === "red";
 
-  let html = `<section aria-live="polite" class="warn" style="background-color:${c.bg};background-image:${pats.join(",") || "none"};color:${ink};border:${src === "live" ? `2px solid ${c.border}` : `3px dashed ${modeColor}`}">
-    <div class="row-between"><div class="row"><span class="tag" style="background:${modeColor};color:#fff;border:1.5px solid ${tone === "neutral" ? modeColor : "#fff"}">${src.toUpperCase()}</span><span class="mono" style="font-size:14px;font-weight:600">${esc(kicker)}</span></div>`;
+  let html = `<section class="warn" style="background-color:${c.bg};background-image:${pats.join(",") || "none"};color:${ink};border:${src === "live" ? `2px solid ${c.border}` : `3px dashed ${modeColor}`}">
+    <div class="row-between"><div class="row"><span class="tag" style="background:${modeColor};color:#fff;border:1.5px solid ${tone === "neutral" ? modeColor : "#fff"}">${src.toUpperCase()}</span><span class="mono" style="font-size:14px;font-weight:600">${kicker}</span></div>`;
   if (knowable) {
     html += `<div role="group" aria-label="Warning level from the backend" class="row" style="gap:4px;font-size:13px;font-weight:700"><span style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;padding-right:4px">${ph === "stopped" ? "Last level" : "Backend level"}</span>`;
     for (const [k, label] of [["none", ph === "stopped" ? "No warning" : "No warning yet"], ["amber", "Amber · careful"], ["red", "Red · stop"]]) {
@@ -564,7 +594,7 @@ function warningView(s) {
   html += `<div style="display:flex;gap:16px;align-items:flex-start">${ic ? `<div style="flex:none;width:48px;height:48px;display:flex;align-items:center;justify-content:center;margin-top:2px">${icon(ic, ink)}</div>` : ""}
     <div style="min-width:0;display:flex;flex-direction:column;gap:8px"><h2 class="headline">${esc(headline)}</h2>${body ? `<p class="lede">${esc(body)}</p>` : ""}</div></div>`;
   if (cur) { // the reviewed spoken-warning text, readable even with the sound off
-    const wl = src === "replay" && log ? log.language : state.lang;
+    const wl = src === "replay" && log ? log.language : src === "sample" && smp ? smp.lang : state.lang;
     html += `<div style="display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:12px;background:${c.quoteBg}"><span class="eyebrow">Warning · ${esc(langByCode(wl).name)}</span><p lang="${esc(wl)}" style="margin:0;font-size:clamp(20px,2.4vw,24px);line-height:1.45;font-weight:700">${esc(WARNING_COPY[`${s.level}-${wl}`] || "")}</p></div>`;
   }
 
@@ -586,10 +616,11 @@ function warningView(s) {
   const cs = state.clipStatus[state.lang];
   if (src === "live" && cs === "missing" && ph !== "idle") N.push(["SOUND", `Spoken warnings unavailable: the ${lname} clips couldn’t load. Warnings will only appear on screen.`]);
   if (src !== "replay" && state.silenced) N.push(["SOUND", "Spoken warnings are silenced for this session."]);
-  if (ph === "listening" && src === "live" && t - (s.lastWordsAt ?? 0) > 15) N.push(["QUIET", `No words transcribed for ${Math.round(t - (s.lastWordsAt ?? 0))} s. Is the call on speaker and close to this device?`]);
+  if (ph === "listening" && src === "live" && t - (s.lastWordsAt ?? 0) > 15) N.push(["QUIET", "No words transcribed for over 15 s. Is the call on speaker and close to this device?"]);
   if (s.backlog) N.push(["NETWORK", "The network is slow. Audio is queued, so warnings may arrive late."]);
   if (ph === "listening" && s.analysis === "ok" && s.unanalysed > 0) N.push(["ANALYSIS", `${s.unanalysed} recent segment${s.unanalysed > 1 ? "s are" : " is"} still being checked.`]);
   s.gaps.filter((g) => g.source !== "playback").slice(-2).forEach((g) => N.push(["GAP", `Audio gap at ${fmt(g.t)} (${g.dur.toFixed(1)} s, ${g.source === "client" ? "not sent — connection too slow" : "server could not keep up"}). That part was not heard or checked.`]));
+  if (s.autoStopped) N.push(["LIMIT", "Stopped automatically at the 15-minute session limit. Start a new session to keep listening."]);
   if (ph === "stopped" && s.stopInfo) s.stopInfo.problems.forEach((p) => N.push([p.tag, p.text]));
   if (N.length) html += `<div style="display:flex;flex-direction:column;gap:8px">${N.map(([tag, text]) => `<div style="display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:baseline;padding:10px 12px;border-radius:10px;border:1.5px dashed currentColor;font-size:16px;line-height:1.4"><span class="mono" style="font-size:12px;font-weight:700;letter-spacing:.08em;padding:2px 6px;border-radius:4px;background:${ink};color:${c.bg}">${esc(tag)}</span><span>${esc(text)}</span></div>`).join("")}</div>`;
 
@@ -629,10 +660,10 @@ function warningView(s) {
     const meter = (s.mic === "on" || s.mic === "paused") && running;
     html += `<div class="row" style="gap:10px;padding-top:4px">
       <button data-act="${p[0]}" ${p[3] ? "disabled" : ""} class="btn-primary" style="background:${c.btnBg};color:${c.btnInk}"><span style="font-size:14px">${p[1]}</span>${p[2]}</button>
-      <button class="btn" data-act="test" ${ph === "stopping" ? "disabled" : ""}>Test warning sound</button>
+      <button class="btn" data-act="test" ${ph === "stopping" || ph === "listening" ? "disabled" : ""}>Test warning sound</button>
       ${ph === "idle" ? `<span style="flex-basis:100%;font-size:14px">On an iPhone, switch off silent mode or warnings will only appear on screen.</span>` : ""}
       ${ph === "stopped" && state.lastLog ? `<button class="btn" data-act="saveLog">Save session log</button>` : ""}
-      ${meter ? `<div class="row" style="gap:8px;font-size:14px;font-weight:700;margin-left:auto"><span>${s.mic === "paused" ? "Mic muted" : "Mic level"}</span><div aria-hidden="true" style="width:110px;height:10px;border-radius:5px;border:1.5px solid currentColor;overflow:hidden"><div style="height:100%;width:${s.mic === "paused" ? 0 : Math.round(state.meter * 100)}%;background:currentColor"></div></div></div>` : ""}
+      ${meter ? `<div class="row" style="gap:8px;font-size:14px;font-weight:700;margin-left:auto"><span>${s.mic === "paused" ? "Mic muted" : "Mic level"}</span><div aria-hidden="true" style="width:110px;height:10px;border-radius:5px;border:1.5px solid currentColor;overflow:hidden"><div data-live="meter" style="height:100%;width:0%;background:currentColor"></div></div></div>` : ""}
     </div>`;
   }
   return html + "</section>";
@@ -747,7 +778,7 @@ function samplePicker(s) {
     <div class="row" style="gap:10px"><button data-act="analyse" ${busy && s.phase === "stopping" ? "disabled" : ""} class="btn-primary" style="background:#2747A6;color:#fff">${busy ? (s.phase === "stopping" ? "Finishing…" : "Stop analysis") : s.phase !== "idle" ? "Analyse again" : "Analyse this sample"}</button>
     <label class="row" style="gap:8px;font-size:15px"><input type="checkbox" id="sampleAloud" ${state.sampleAloud ? "checked" : ""} ${busy ? "disabled" : ""} style="width:20px;height:20px;accent-color:#2747A6">Play the sample aloud while it’s analysed</label>
     ${s.phase === "stopped" && state.lastLog ? `<button class="btn" style="color:#2747A6" data-act="saveLog">Save session log</button>` : ""}</div>
-    ${["listening", "stopping", "stopped"].includes(s.phase) && s.sampleDur ? `<div style="display:flex;flex-direction:column;gap:6px"><div style="height:10px;border-radius:5px;background:#D9DFEF;overflow:hidden"><div style="height:100%;width:${Math.min(100, Math.round((100 * s.audioT) / s.sampleDur))}%;background:#2747A6"></div></div><span class="mono" style="font-size:14px">Sent ${fmt(Math.min(s.audioT, s.sampleDur))} of ${fmt(s.sampleDur)} to the pipeline${s.audioT > s.sampleDur ? ` · then ${(s.audioT - s.sampleDur).toFixed(1)} s of silence` : ""}</span></div>` : ""}
+    ${["listening", "stopping", "stopped"].includes(s.phase) && s.sampleDur ? `<div style="display:flex;flex-direction:column;gap:6px"><div style="height:10px;border-radius:5px;background:#D9DFEF;overflow:hidden"><div data-live="sampleBar" style="height:100%;width:0%;background:#2747A6"></div></div><span class="mono" style="font-size:14px" data-live="sampleText"></span></div>` : ""}
   </section>`;
 }
 
@@ -762,11 +793,11 @@ function replayPanel() {
     <div class="card-h"><h3 class="t">Saved session</h3><span style="font-size:14px;color:#3E2A6E;font-weight:700">Saved event timeline · not live</span></div>
     <label style="display:flex;flex-direction:column;gap:6px;font-size:15px;font-weight:700">Session log file (saved from Live or Sample mode; it stays on this device)<input type="file" id="replayFile" accept="application/json,.json" style="font-size:15px"></label>
     ${rp.error ? `<span style="font-weight:700;color:#B3261E">${esc(rp.error)}</span>` : ""}
-    ${log ? `<span class="sub">${esc(rp.name)} · ${log.source} · ${esc(langByCode(log.language).name)}${log.sample ? ` · sample ${esc(log.sample)}` : ""}</span>
+    ${log ? `<span class="sub">${esc(rp.name)} · ${esc(log.source)} · ${esc(langByCode(log.language).name)}${log.sample ? ` · sample ${esc(log.sample)}` : ""}</span>
     <div class="row" style="gap:10px"><button data-act="play" class="btn-primary" style="background:#5B3B9E;color:#fff;min-width:150px"><span style="font-size:14px">${rp.playing ? "❚❚" : "▶"}</span>${rp.playing ? "Pause" : rp.t >= dur ? "Play again" : rp.t > 0 ? "Resume" : "Play replay"}</button>
       <button class="btn" style="color:#3E2A6E" data-act="restart">Restart</button><button class="btn mono" style="color:#3E2A6E" data-act="speed">Speed ${rp.speed}×</button>
-      <span class="mono" style="font-size:16px;font-weight:700;margin-left:auto">${fmt(rp.t)} / ${fmt(dur)}</span></div>
-    <div aria-hidden="true" style="position:relative;height:16px;border-radius:4px;background:#E6E0F0">${markers.map((m) => `<span style="position:absolute;top:0;bottom:0;left:${((100 * m.t) / dur).toFixed(2)}%;width:5px;background:${m.lvl === "red" ? "#B3261E" : "#E0A400"};border-radius:2px"></span>`).join("")}<span style="position:absolute;top:-3px;bottom:-3px;left:${Math.min(99.5, (100 * rp.t) / dur).toFixed(2)}%;width:3px;background:#17191E;border-radius:2px"></span></div>
+      <span class="mono" style="font-size:16px;font-weight:700;margin-left:auto" data-live="replayTime"></span></div>
+    <div aria-hidden="true" style="position:relative;height:16px;border-radius:4px;background:#E6E0F0">${markers.map((m) => `<span style="position:absolute;top:0;bottom:0;left:${((100 * m.t) / dur).toFixed(2)}%;width:5px;background:${m.lvl === "red" ? "#B3261E" : "#E0A400"};border-radius:2px"></span>`).join("")}<span data-live="replayHead" style="position:absolute;top:-3px;bottom:-3px;left:0%;width:3px;background:#17191E;border-radius:2px"></span></div>
     <label class="row" style="gap:8px;font-size:15px"><input type="checkbox" id="replaySound" ${rp.sound ? "checked" : ""} style="width:20px;height:20px;accent-color:#5B3B9E">Play the warning sounds at the recorded moments</label>` : ""}
   </section>`;
 }
@@ -811,6 +842,26 @@ const BANNERS = {
 const last = {};
 function patch(id, html) { if (last[id] !== html) { last[id] = html; $(id).innerHTML = html; } }
 
+// Values that change every tick, written into stable elements instead of rebuilding the cards.
+function updateLive(s) {
+  const rp = state.replay, dur = rp.log ? replayDur(rp.log) : 1;
+  const sd = s.sampleDur || 0;
+  const values = {
+    clock: { text: fmt(s.audioT) },
+    meter: { width: s.mic === "paused" ? 0 : Math.round(state.meter * 100) },
+    sampleBar: { width: sd ? Math.min(100, Math.round((100 * s.audioT) / sd)) : 0 },
+    sampleText: { text: sd ? `Sent ${fmt(Math.min(s.audioT, sd))} of ${fmt(sd)} to the pipeline${s.audioT > sd ? ` · then ${(s.audioT - sd).toFixed(1)} s of silence` : ""}` : "" },
+    replayTime: { text: `${fmt(rp.t)} / ${fmt(dur)}` },
+    replayHead: { left: Math.min(99.5, (100 * rp.t) / dur).toFixed(2) },
+  };
+  for (const el of document.querySelectorAll("[data-live]")) {
+    const v = values[el.dataset.live]; if (!v) continue;
+    if (v.text !== undefined && el.textContent !== v.text) el.textContent = v.text;
+    if (v.width !== undefined) el.style.width = `${v.width}%`;
+    if (v.left !== undefined) el.style.left = `${v.left}%`;
+  }
+}
+
 function render() {
   const mode = state.mode;
   patch("tabs", [["live", "1", "Live microphone"], ["sample", "2", "Analyse sample audio"], ["replay", "3", "Recorded replay"], ["eval", "", "Evaluation report"]].map(([k, num, label]) => {
@@ -841,6 +892,21 @@ function render() {
   const tr = $("tr"), near = tr.scrollHeight - tr.scrollTop - tr.clientHeight < 140;
   patch("tr", transcriptView(s));
   if (near) tr.scrollTop = tr.scrollHeight;
+  updateLive(s);
+  $("lang").disabled = isActive(state.s); // the transcription language is fixed for a session
+  announce(s);
+}
+
+// Screen readers: the warning card is rebuilt, so announce headline changes through persistent regions,
+// assertively for red.
+let announced = "";
+function announce(s) {
+  const text = $("warning").querySelector(".headline")?.textContent || "";
+  if (!text || text === announced) return;
+  announced = text;
+  const red = s.level === "red" && s.phase === "listening";
+  $(red ? "alertRegion" : "statusRegion").textContent = text;
+  $(red ? "statusRegion" : "alertRegion").textContent = "";
 }
 
 $("lang").innerHTML = LANGS.map((l) => `<option value="${l.code}">${esc(l.label)}</option>`).join("");
