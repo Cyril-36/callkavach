@@ -16,6 +16,15 @@ from backend.evaluation.replay_runner import load_pilot, run_development_set
 PROVIDER_HTTP_TIMEOUT_S = 8.0
 
 
+def report_path_error(output: Path) -> str | None:
+    """Reports include transcripts and evidence quotes; refuse paths inside this repository."""
+    root = Path(__file__).resolve().parents[2]
+    target = output.expanduser().resolve()
+    if target == root or root in target.parents:
+        return f"report path is inside the repository: {target}; choose a path outside it"
+    return None
+
+
 def repo_state():
     root = Path(__file__).resolve().parents[2]
     try:
@@ -97,6 +106,8 @@ def live_components():
 
 
 async def run(output: Path, finalize_timeout_s: float):
+    if why := report_path_error(output):
+        raise ValueError(why)  # before opening a verifier or making a paid call
     transcripts, truth = load_pilot()
     detector, verifier, prompt_version = live_components()
     started_at = datetime.now(timezone.utc).isoformat()
