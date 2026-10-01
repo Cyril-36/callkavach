@@ -79,9 +79,9 @@ Fill this record only from an observed run. Use synthetic or explicitly consente
 | Run field | Observed value |
 | --- | --- |
 | Public HTTPS URL and deployed commit | [https://callkavach.onrender.com/](https://callkavach.onrender.com/) supplied by Harshit and reachable over HTTPS on 1 October 2026. The deployed commit was not independently identified; `f356999` in the evaluation report identifies the replay run's source commit, not necessarily the deployed app commit. |
-| Date/time (IST), phone model, OS and browser/version | 1 October 2026; Realme 11 Pro, Android 15, reported by Harshit. Time and browser/version pending. |
+| Date/time (IST), phone model, OS and browser/version | 1 October 2026; Realme 11 Pro, Android 15, Chrome, reported by Harshit. Time and Chrome version pending. |
 | Input source and consent/synthetic status | Pending; no listening outcome was reported for the phone attempt. |
-| Access-code configuration and session-cap behavior | The phone displayed **access code needed**; Harshit did not report an authenticated session or session-cap test. The code itself must remain private. |
+| Access-code configuration and session-cap behavior | Harshit reported that Chrome said this server needs an access code and directed him to Settings to enter it. He did not report an authenticated session or session-cap test. The code itself must remain private. |
 
 | Phone check | Observed result | Private evidence reference |
 | --- | --- | --- |
