@@ -1,13 +1,65 @@
 # Offline evaluation
 
-This standard-library-only module evaluates labelled call records and provides a
-simple keyword baseline over finalized transcript segments. It makes no API calls.
+The metrics, keyword baseline and validators use only Python's standard library.
+The optional replay runner invokes the separately configured live detector,
+which may call an external verifier.
 
 Run the checks from the repository root:
 
 ```bash
 python3 -m unittest discover -s backend/evaluation -p 'test_*.py'
 ```
+
+## Development replay runner
+
+`replay_runner.py` schedules each **finalized** pilot segment at its scripted
+end time. At each step, `detector_view()` supplies only the visible prefix;
+the runner creates an opaque per-session segment ID and a real monotonic
+receive time for the detector. It captures the detector's actual emitted
+`risk` events, then joins the separate ground truth after that call closes.
+The first `red` event's `emitted_at_ms` becomes `red_alert_at_ms` for the
+existing metrics. Missing alerts stay null. `metrics.overall.false_alarm_rate`
+is the **RED-alert false-alarm rate**: genuine calls with an emitted red alert
+divided by all genuine calls. `amber_warning_rates` separately reports the
+fraction of genuine and scam calls with an emitted amber event, including calls
+that later turn red. The report also includes scam recall, red warning before
+the scripted first ask, verifier latency, post-receive delay, and detector
+failures. Failed calls remain in all applicable metric denominators and are
+counted separately in `failure_calls`.
+
+The command below uses the merged detector and the configured verifier
+(AICredits by default, or direct Gemini when selected). It exits without
+producing results if the provider is unavailable. Run from the repository root
+and save the output outside the repository. A provider HTTP 401 or Gemini
+quota-exhausted HTTP 429 stops the replay after its first affected call
+without writing a score report; restore provider access before retrying.
+Other per-call failures remain in the metric denominators. The repo uses `uv`
+to provide the detector's `httpx` dependency:
+
+```bash
+uv run --no-project --with httpx python -m backend.evaluation.run_pilot \
+  --output /tmp/callkavach-dev-replay.json
+```
+
+Each live report includes a `reproducibility` manifest with the repository HEAD
+SHA and an `uncommitted_changes` flag, the detector file's last commit SHA,
+selected provider and exact configured model, prompt version, UTC run times,
+provider HTTP/detector/finalize timeouts, and token usage and cost **where the
+API returned them**. `reported_cost_is_partial` is true when fewer detector
+requests have returned cost values than were made; the total then covers only
+the returned values. Missing cost is `null`, not zero, and the runner does not
+infer a currency or price. Raw per-event provider metadata remains in
+`calls[].risk_events[].verifier`. The manifest is written only after a live
+run; this repository contains no measured pilot report.
+
+This is a **synthetic text replay**. Scripted segment and first-ask times are
+not measured speech or STT timing. `emitted_at_ms` and the processing delays
+come from the detector's actual replay clock; they are not audio-to-warning
+latency. Independent Hindi-English and Telugu-English fluent-speaker reviews
+are pending, as recorded in `MULTILINGUAL_PILOT_REVIEW.md` and the report's
+`language_review` and `score_status` fields. Any score is provisional until
+those reviews are done. Never feed the sealed final
+families to this development runner or tune after seeing their results.
 
 ## Example
 
@@ -145,7 +197,7 @@ for count in range(1, len(transcript["segments"]) + 1):
 The projection includes only `language` and ordered segment `text`,
 `start_at_ms`, and `end_at_ms`. It excludes call IDs, speakers, labels,
 lineage, first asks and future turns. Never send raw fixtures or ground truth
-to Gemini. Segment-start first-ask times are coarse scripted annotations, not
+to a verifier. Segment-start first-ask times are coarse scripted annotations, not
 measured speech or detector alert times. Only an actual detector run may
 produce alert timestamps.
 
