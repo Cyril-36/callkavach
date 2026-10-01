@@ -39,7 +39,7 @@ node --test frontend/app/session-core.test.js
 
 `session-core.js` holds the protocol, reducer and Stop classification, with no DOM. The tests also check that `app.js` sends no text message other than `start` and `stop`.
 
-Browser lifecycle tests: run the relay with `STT_PROVIDER=mock LLM_PROVIDER=off` (no paid calls) and open http://127.0.0.1:8766/lifecycle.test.html. The app runs in an iframe with a synthetic microphone. The title reads `ALL PASSED` when:
+Browser lifecycle tests: run the relay with `STT_PROVIDER=mock LLM_PROVIDER=off` (no paid calls), open http://127.0.0.1:8766/lifecycle.test.html, and click **Run lifecycle tests**. This browser gesture lets the synthetic microphone's AudioContext run. The app runs in an iframe with that synthetic microphone. The title reads `ALL PASSED` when:
 - Stop tapped right after `ready`, while the AudioWorklet is still loading, still sends `stop` and gets the server's `stopped` reply;
 - a worklet that fails after Stop doesn't turn the result into a microphone error;
 - a worklet failure while listening is reported and releases the microphone;

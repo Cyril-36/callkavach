@@ -51,3 +51,7 @@ The authenticated GitHub permission endpoint returned `write` for `Harshit-ambat
 ## Later owner integration on 1 October 2026
 
 The PR status above describes Harshit's check at `f2e6cad`. Cyril subsequently reviewed and merged PR #11 as `9fb7274` and PR #17 as `f2a5b0e`. The development runner's 47 offline tests and ten-call structural validator passed; no additional paid-provider run was made. The rebased listener passed 190 offline backend tests and 31 Node tests. In Cyril's Chrome mock browser check, three listener lifecycle cases passed; the automated Start → Stop → Start case timed out waiting for a synthetic transcript. This is an unresolved browser-test limitation, not a passing device result. The public deployment, two-device test, and measured provider evaluation remain pending.
+
+## Listener lifecycle retest
+
+The missing transcript was traced to the lifecycle page launching its synthetic microphone with a programmatic click on page load. Chrome suspended both test AudioContexts, so no PCM frames reached the mock relay. The test page now waits for a real click on **Run lifecycle tests**. With `STT_PROVIDER=mock LLM_PROVIDER=off`, all four listener lifecycle cases passed on two Chrome runs, including Start → Stop → Start with a transcript and confirmed `stopped` reply in each session. The app's capture code was unchanged, and all 31 Node tests passed. This resolves the synthetic test-harness failure; it does not replace the pending phone, two-device, or live-provider checks.
