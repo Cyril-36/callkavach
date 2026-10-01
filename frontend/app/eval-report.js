@@ -31,7 +31,8 @@ export function readReport(j) {
   if (j.timing_basis) caveats.push(`Timing basis: ${j.timing_basis.replace(/_/g, " ")}. Scripted text replay, not audio-to-warning latency.`);
   if (j.score_status) caveats.push(`Score status: ${j.score_status.replace(/_/g, " ")}.`);
   caveats.push(`${j.calls.length} development call(s). A small synthetic set: percentages are indicative, not an accuracy claim.`);
-  if (j.failure_calls) caveats.push(`${j.failure_calls} call(s) had detector failures; they stay in every denominator.`);
+  const failed = Math.max(j.failure_calls || 0, j.calls.filter((c) => (c.failures || []).length).length);
+  if (failed) caveats.push(`${failed} call(s) had detector failures; they stay in every denominator, and a dash in their row means "not known", not "no warning".`);
   return {
     dataset: j.dataset || "unknown dataset",
     provider: rep ? `${rep.provider} · ${rep.model}` : "provider not recorded",
@@ -56,8 +57,8 @@ export function readReport(j) {
     calls: j.calls.map((c) => ({
       id: c.call_id,
       lang: LANG_NAMES[c.language] || c.language,
-      firstWarning: seconds(c.first_warning_at_ms),
-      firstRed: seconds(c.first_red_at_ms),
+      firstWarning: (c.failures || []).length && c.first_warning_at_ms == null ? "unknown (failed)" : seconds(c.first_warning_at_ms),
+      firstRed: (c.failures || []).length && c.first_red_at_ms == null ? "unknown (failed)" : seconds(c.first_red_at_ms),
       status: c.detector_summary ? c.detector_summary.status : "unknown",
       failures: (c.failures || []).join("; "),
     })),

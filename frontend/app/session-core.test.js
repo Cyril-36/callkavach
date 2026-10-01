@@ -189,3 +189,8 @@ test("the stop summary can raise the level but never lower it", () => {
   s = reduce(reduce(listening(), risk({ level: "amber" }), 5), stopped({}, { level: "none" }), 10);
   assert.equal(s.level, "amber");
 });
+
+test("an unreadable level stays unreadable after Stop", () => {
+  const s = reduce(reduce(listening(), risk({ level: "purple" }), 5), stopped({}, { level: "none" }), 10);
+  assert.equal(s.level, "unknown");
+});

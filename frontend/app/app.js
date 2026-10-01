@@ -111,12 +111,18 @@ async function releaseMic(r) {
 
 // Keeps a phone's screen on while listening, so the warning is visible when it arrives. Best effort:
 // unsupported browsers and a refused request simply leave the screen's normal timeout in place.
-let wakeLock = null;
+let wakeLock = null, wantLock = false, lockPending = false;
 async function holdScreen(on) {
+  wantLock = on;
   try {
-    if (on && !wakeLock && navigator.wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); }
-    else if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
-  } catch { wakeLock = null; }
+    if (on && !wakeLock && !lockPending && navigator.wakeLock) {
+      lockPending = true;
+      const w = await navigator.wakeLock.request("screen").finally(() => { lockPending = false; });
+      if (!wantLock) { await w.release(); return; } // the session ended while the request was pending
+      wakeLock = w;
+      w.addEventListener("release", () => { if (wakeLock === w) wakeLock = null; });
+    } else if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+  } catch { /* unsupported or refused: the screen keeps its normal timeout */ }
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && rt && isActive(state.s)) holdScreen(true); });
 
@@ -323,9 +329,17 @@ async function playClip(level, why, lang = (rt && rt.lang) || state.lang) {
     }
   }
   if (state.clipTok !== token) return;
+  const o = ensureOut();
+  if (o.state !== "running") await Promise.race([o.resume().catch(() => {}), new Promise((res) => setTimeout(res, 500))]);
+  if (state.clipTok !== token) return;
+  if (o.state !== "running") { // never play a clip we can't mute for: it would be transcribed as the caller's words
+    state.clipTok = null;
+    state.playback = { state: "error", level, why, lang, msg: "This device has paused audio output, so the warning couldn’t be spoken." };
+    if (why === "test") state.test = { state: "error", msg: "Audio output is paused on this device. Tap the page, check silent mode, and test again." };
+    render(); return;
+  }
   const r = rt;
-  // Mute the microphone only if the clip will really play; a suspended output never ends the clip.
-  const mute = !!(r && r.kind === "live" && state.s?.phase === "listening" && why !== "replay" && ensureOut().state === "running");
+  const mute = !!(r && r.kind === "live" && state.s?.phase === "listening" && why !== "replay");
   const t0 = mute ? r.audioT : 0;
   if (mute) { r.muted = true; patchS({ mic: "paused" }); }
   const node = ensureOut().createBufferSource(); node.buffer = buf; node.connect(out.destination);
@@ -483,10 +497,10 @@ setInterval(() => {
   let dirty = false;
   if (rt && state.s?.phase === "listening") {
     // A locked screen or a backgrounded tab can stop capture without any error event.
-    if (rt.kind === "live" && rt.captureAt && t - (rt.lastBlockAt || rt.captureAt) > MIC_STALL_MS) {
-      fail("miclost", null, { disconnectedAt: rt.audioT });
-      return;
-    }
+    // Two stale ticks in a row, and never while a warning clip plays (iOS may pause capture for it).
+    const stale = rt.kind === "live" && rt.captureAt && !state.clipNode && t - (rt.lastBlockAt || rt.captureAt) > MIC_STALL_MS;
+    rt.staleTicks = stale ? (rt.staleTicks || 0) + 1 : 0;
+    if (rt.staleTicks >= 2) { fail("miclost", null, { disconnectedAt: rt.audioT }); return; }
     if (rt.audioT >= AUTO_STOP_AUDIO_S) { state.s = { ...state.s, autoStopped: true }; stopSession(); }
   }
   if (rt && state.s && ["listening", "stopping"].includes(state.s.phase)) {
@@ -904,9 +918,9 @@ function announce(s) {
   const text = $("warning").querySelector(".headline")?.textContent || "";
   if (!text || text === announced) return;
   announced = text;
-  const red = s.level === "red" && s.phase === "listening";
-  $(red ? "alertRegion" : "statusRegion").textContent = text;
-  $(red ? "statusRegion" : "alertRegion").textContent = "";
+  const urgent = s.source !== "replay" && ((s.level === "red" && s.phase === "listening") || FAILS.includes(s.phase));
+  $(urgent ? "alertRegion" : "statusRegion").textContent = text;
+  $(urgent ? "statusRegion" : "alertRegion").textContent = "";
 }
 
 $("lang").innerHTML = LANGS.map((l) => `<option value="${l.code}">${esc(l.label)}</option>`).join("");

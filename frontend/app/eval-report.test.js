@@ -58,3 +58,10 @@ test("empty denominators never show as a percentage", () => {
   assert.deepEqual(fraction(rate(0, 0)), { frac: "0 / 0", pct: "no samples" });
   assert.deepEqual(fraction(undefined), { frac: "—", pct: "not reported" });
 });
+
+test("a failed call's missing alert times read as unknown, not as no warning", () => {
+  const { failure_calls, ...rest } = REPORT;
+  const r = readReport(rest);
+  assert.equal(r.calls[1].firstRed, "unknown (failed)");
+  assert.match(r.caveats.join(" "), /1 call\(s\) had detector failures/);
+});

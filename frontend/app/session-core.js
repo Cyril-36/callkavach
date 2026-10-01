@@ -111,7 +111,8 @@ export function reduce(s, m, t) {
     case "stopped": {
       const stopInfo = readStopped(m, s);
       // The final summary can only confirm or raise the level seen in risk events, never lower it.
-      const level = LEVELS.indexOf(stopInfo.level) > LEVELS.indexOf(s.level) ? stopInfo.level : s.level;
+      // An unreadable level stays unreadable: it is never replaced by the summary's "none".
+      const level = s.level !== "unknown" && LEVELS.indexOf(stopInfo.level) > LEVELS.indexOf(s.level) ? stopInfo.level : s.level;
       return { ...s, phase: "stopped", connection: "closed", speaking: false, level, stopInfo };
     }
     default:

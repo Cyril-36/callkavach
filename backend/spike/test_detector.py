@@ -701,3 +701,9 @@ def test_prompt_defines_every_tactic_and_the_labelling_rules():
     assert "UPI collect" in SYSTEM_PROMPT  # "enter your PIN to receive money" is a credential request
     assert "separate findings" in SYSTEM_PROMPT  # a warning and a request in one segment
     assert 'No "..."' in SYSTEM_PROMPT
+
+
+def test_prompt_names_genuine_company_calls_as_benign():
+    from gemini_verifier import SYSTEM_PROMPT
+    assert "asks for no\n  OTP, PIN, password or remote access" in SYSTEM_PROMPT or "OTP, PIN, password or remote access" in SYSTEM_PROMPT
+    assert "is not by itself a tactic" in SYSTEM_PROMPT

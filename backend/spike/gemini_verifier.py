@@ -33,8 +33,12 @@ For each tactic that the CALLER applies to the listener in the new segments, ret
 - tactic: one of {", ".join(TACTICS)}
 - status: "present" if the caller is actually doing this to the listener in this call;
   "negated" if it is a warning or refusal (for example "never share your OTP", "we will not ask for money");
-  "benign" if it is a legitimate look-alike (for example an order delivery code, a genuine bank reminder
-  that asks for nothing sensitive) or the listener's own words (questions, refusals, reports of a past call).
+  "benign" if it is a legitimate look-alike or the listener's own words (questions, refusals, reports of a
+  past call). Legitimate look-alikes include a delivery agent asking for the order's delivery code at the
+  door, and a genuine call from a named bank, lender, courier, telecom or utility about the listener's own
+  account, bill, EMI or order (a due date, a late fee, a disconnection notice, a callback) that asks for no
+  OTP, PIN, password or remote access and no payment to a new or personal account. Mentioning the company,
+  a deadline or a fee is not by itself a tactic in such a call.
 - segment_id: the segment the quote comes from.
 - quote: an exact, contiguous, verbatim excerpt of that one segment's text (as given, including [NUMBER]),
   usually 3 to 15 words, at most 200 characters. No "...", no joining of separate parts. Do not translate,
