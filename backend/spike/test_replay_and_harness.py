@@ -119,10 +119,22 @@ def test_harness_summarise_extracts_detection_fields():
            "speech_s": 11.9, "speech_end_t": 12.5, "stop_sent_t": 14.2, "end_t": 16.7, "final": stopped}
     out = e2e_harness.summarise(run)
     assert out["detection"]["first_red_at_ms"] == 16198 and out["detection"]["reported_cost"] == 0.17
+    assert out["detection"]["cost_unit"] is None  # provider absent: never guess the currency
     assert out["detection"]["call_latencies_s"] == [3.2] and out["detection"]["cut_off_by_stop_deadline"] is False
     assert out["transcripts"] == [{"client_t": 13.4, "segment_id": "a", "text": "OTP"}]
     assert out["risk_events"][0]["tactics"] == {"credential_request": ["OTP"]}
     assert out["client_timing"]["stop_to_end_s"] == 2.5 and out["stopped"]["transcription"] == "complete"
+
+
+def test_harness_cost_unit_requires_aicredits_provenance():
+    import e2e_harness
+    risk = {"type": "risk", "verifier": {"provider": "aicredits", "cost": 0.25}, "tactics": [], "latency_s": None}
+    run = {"messages": [{"t": 1.0, "msg": risk}], "final": None, "speech_s": 0,
+           "speech_end_t": 0, "stop_sent_t": None, "end_t": 1.0}
+    assert e2e_harness.summarise(run)["detection"]["cost_unit"] == "INR (AICredits usage.cost)"
+    risk["verifier"] = {"provider": "gemini", "cost": None}
+    result = e2e_harness.summarise(run)["detection"]
+    assert result["reported_cost"] is None and result["cost_unit"] is None
 
 
 @pytest.mark.asyncio
