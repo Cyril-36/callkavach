@@ -74,7 +74,11 @@ function openSocket(langCode) {
   ws.onmessage = ({ data }) => {
     if (rt !== r || typeof data !== "string") return;
     let m; try { m = JSON.parse(data); } catch { return; }
-    if (m.type === "ready") { clearTimeout(r.readyTimer); r.audioT = 0; apply(m); r.onReady?.(); return; }
+    if (m.type === "ready") {
+      // The sender exists from the moment the session is listening, so Stop works even while the
+      // microphone's audio graph is still being set up (it then sends only the silence tail).
+      clearTimeout(r.readyTimer); r.audioT = 0; r.sender = new PcmSender(ws); apply(m); r.onReady?.(); return;
+    }
     if (m.type === "stopped") { apply(m); finish(); return; }
     if (m.type === "error") { apply(m); teardown(); if (r.kind === "live") patchS({ mic: "released" }); return; }
     apply(m);
@@ -156,11 +160,10 @@ async function startLive() {
     try {
       r.ctx = new AudioContext();
       await r.ctx.audioWorklet.addModule(new URL("../spike/pcm-worklet.js", import.meta.url));
-      if (rt !== r) return;
+      if (rt !== r || state.s.phase !== "listening") return; // stopped or failed during setup
       r.source = r.ctx.createMediaStreamSource(stream);
       r.node = new AudioWorkletNode(r.ctx, "pcm-capture");
       const resampler = new Resampler(r.ctx.sampleRate, SAMPLE_RATE);
-      r.sender = new PcmSender(r.ws);
       r.node.port.onmessage = ({ data }) => {
         if (rt !== r || state.s.phase !== "listening") return;
         let sum = 0; for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
@@ -168,7 +171,9 @@ async function startLive() {
         sendPcm(r, toInt16(resampler.process(data)));
       };
       r.source.connect(r.node);
-    } catch (e) { fail("micerror", `audio processing failed: ${e.message}`, { mic: "error" }); }
+    } catch (e) { // after Stop the context is closed, so setup may throw; Stop then finishes on its own
+      if (rt === r && state.s.phase === "listening") fail("micerror", `audio processing failed: ${e.message}`, { mic: "error" });
+    }
   };
   openSocket(state.lang);
 }
@@ -234,7 +239,6 @@ async function analyseSample() {
   if (rt !== r) return;
   setS({ ...state.s, phase: "connecting", connection: "connecting", sampleDur: r.buf.duration });
   r.onReady = () => {
-    r.sender = new PcmSender(r.ws);
     if (state.sampleAloud) { try { const a = o.createBufferSource(); a.buffer = r.buf; a.connect(o.destination); a.start(); r.aloud = a; } catch {} }
     let pos = 0;
     r.streamTimer = setInterval(() => { // real-time pacing, 100 ms frames

@@ -39,6 +39,12 @@ node --test frontend/app/session-core.test.js
 
 `session-core.js` holds the protocol, reducer and Stop classification, with no DOM. The tests also check that `app.js` sends no text message other than `start` and `stop`.
 
+Browser lifecycle tests: run the relay with `STT_PROVIDER=mock LLM_PROVIDER=off` (no paid calls) and open http://127.0.0.1:8766/lifecycle.test.html. The app runs in an iframe with a synthetic microphone. The title reads `ALL PASSED` when:
+- Stop tapped right after `ready`, while the AudioWorklet is still loading, still sends `stop` and gets the server's `stopped` reply;
+- a worklet that fails after Stop doesn't turn the result into a microphone error;
+- a worklet failure while listening is reported and releases the microphone;
+- Start → Stop → Start streams audio, and each Stop is confirmed.
+
 ## Not done here
 
 - **Phone access:** getUserMedia needs https, and the relay only trusts `localhost`, `127.0.0.1` and `[::1]` as Host. A phone can reach the app only after deployment with a configured host.
