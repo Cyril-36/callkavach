@@ -1225,3 +1225,29 @@ def test_refusals_and_starts_are_logged_without_secrets(client, monkeypatch, cap
     text = caplog.text
     assert "access_denied" in text and "session_started" in text and "refused_upgrade" in text
     assert "wrong-guess" not in text and "kavach-demo" not in text, "codes must never be logged"
+
+
+TOKEN = "sk_live_" + "Q7w9E2r4T6y8U1i3O5p7" * 2  # token-shaped, never a real key
+
+
+def test_transcription_provider_error_text_is_masked_for_the_browser(client):
+    """Sarvam WebSocket errors reach the browser through provider_failed; token-shaped text is masked."""
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = lambda p, total: p.emit(
+            {"type": "error", "data": {"error": f"invalid api-subscription-key {TOKEN}", "code": "unauthorized"}})
+        ws.send_bytes(b"\x00\x00" * 1600)
+        msg = expect_error(ws, "provider_error", 1011)
+    assert TOKEN not in msg["message"] and "[redacted]" in msg["message"]
+    assert msg["message"].startswith("Transcription failed: unauthorized: invalid api-subscription-key")
+
+
+def test_transcription_unavailable_error_text_is_masked_for_the_browser(client, monkeypatch):
+    async def connect(language_code):
+        raise ProviderError(f"could not connect to Sarvam (InvalidStatus: 403 for key {TOKEN})")
+    monkeypatch.setattr(audio_ws, "connect_provider", connect)
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json(START)
+        msg = expect_error(ws, "provider_unavailable", 1011)
+    assert TOKEN not in msg["message"] and "[redacted]" in msg["message"]

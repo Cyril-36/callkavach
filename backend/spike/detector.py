@@ -105,6 +105,11 @@ class VerifierError(Exception):
 _LONG_TOKEN = re.compile(r"[A-Za-z0-9_\-]{24,}")
 
 
+def redact_tokens(text: str, limit: int = 200) -> str:
+    """Browser-safe provider text: anything shaped like a key or token (24+ word characters) is masked."""
+    return _LONG_TOKEN.sub("[redacted]", str(text)[:limit])
+
+
 def error_detail(response) -> str:
     """Short, browser-safe text from a provider's error response.
 
@@ -116,7 +121,7 @@ def error_detail(response) -> str:
         detail = err.get("message", "") if isinstance(err, dict) else str(err or "")
     except (ValueError, AttributeError):
         detail = response.text
-    return _LONG_TOKEN.sub("[redacted]", str(detail)[:200])
+    return redact_tokens(detail)
 
 
 @dataclass

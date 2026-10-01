@@ -45,7 +45,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from detector import Segment, SessionDetector
+from detector import Segment, SessionDetector, redact_tokens
 from verifier_config import make_verifier
 from stt_provider import ProviderError, default_connector
 
@@ -345,7 +345,7 @@ class _Relay:
         self.failure = message
         self.failed.set()
         try:
-            await self.send({"type": "error", "code": "provider_error", "message": f"Transcription failed: {message}"})
+            await self.send({"type": "error", "code": "provider_error", "message": f"Transcription failed: {redact_tokens(message)}"})
             await self.ws.close(code=1011)
         except Exception:
             pass  # browser already gone
@@ -396,7 +396,7 @@ async def _session(ws: WebSocket) -> None:
     except ProviderError as e:
         if verifier:
             await verifier.close()
-        await _fail(ws, "provider_unavailable", f"Transcription unavailable: {e}", 1011)
+        await _fail(ws, "provider_unavailable", f"Transcription unavailable: {redact_tokens(e)}", 1011)
         return
 
     relay = _Relay(ws, provider)
