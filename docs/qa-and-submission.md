@@ -72,13 +72,13 @@ Checked on 1 October 2026 after Cyril merged PR #20. The server used `STT_PROVID
 
 PR #20's merged public-host configuration was checked only through offline tests. Its deployment, real-provider behavior and phone experience are not verified by these results.
 
-## Deployed phone QA record — pending Cyril's URL
+## Deployed phone QA record — phone run pending
 
 Fill this record only from an observed run. Use synthetic or explicitly consented speech. Keep recordings, ordinary transcripts, keys, access codes and live-result reports out of Git; record a private evidence location instead of copying them here.
 
 | Run field | Observed value |
 | --- | --- |
-| Public HTTPS URL and deployed commit | Pending — no URL supplied to Harshit at this check |
+| Public HTTPS URL and deployed commit | [https://callkavach.onrender.com/](https://callkavach.onrender.com/) supplied by Harshit and reachable over HTTPS on 1 October 2026. The deployed commit was not independently identified; `f356999` in the evaluation report identifies the replay run's source commit, not necessarily the deployed app commit. |
 | Date/time (IST), phone model, OS and browser/version | Pending |
 | Input source and consent/synthetic status | Pending |
 | Access-code configuration and session-cap behavior | Pending; do not record the code itself |
@@ -92,3 +92,18 @@ Fill this record only from an observed run. Use synthetic or explicitly consente
 | Amber and red warning playback in Hindi, Telugu and English; on-screen fallback if sound fails | Pending | Pending |
 | `tel:1930` and `cybercrime.gov.in` help links open the intended destination without automatic reporting | Pending | Pending |
 | Final README, demo, evaluation counts/failures, public links and submission receipt match observed evidence | Pending | Pending |
+
+### Deployed read-only checks on 1 October 2026
+
+These checks used the public site in the Codex in-app browser and HTTP GET/HEAD requests. No microphone session, sample analysis, provider call, phone test, external help action or recording was made.
+
+| Check | Observed result |
+| --- | --- |
+| Public page | `GET https://callkavach.onrender.com/` returned 200 over HTTPS. The live listener page showed **Not listening yet** and the status panel showed microphone off, server not connected, STT and analysis not running. |
+| Evaluation tab | Opened `#eval` in the browser. It rendered the sanitised `callkavach.public_eval.v1` report for ten synthetic development calls with a clear text-replay timing caveat and two detector failures. `GET /eval/report.json` returned 200; `GET /eval/raw.json` returned 404. This is a published export, not evidence of phone audio latency. |
+| Development-result cross-check | Joined the public report's ten call IDs to `multilingual_pilot_ground_truth.json`: five of five scams had a red alert; zero of five genuine calls had a warning; five of five first warnings preceded the scripted first dangerous ask by 6,776–22,509 ms. The export reports two timeout failures on genuine calls, 75 detector requests and 13.92385154259156 provider-reported cost units, marked partial. The private raw run and owner QA record were not inspected. |
+| Warning assets | HEAD requests for `amber-hi.wav`, `red-hi.wav`, `amber-te.wav`, `red-te.wav`, `amber-en.wav` and `red-en.wav` under `/assets/warnings/` each returned 200 with `audio/x-wav`. This checks availability, not phone playback or pronunciation. |
+| Desktop sound control | Clicked **Test warning sound** with Hindi selected while not listening. The UI changed to **Playing the Hindi test clip…**, then asked whether it was heard clearly. No audible judgment was recorded. |
+| Help actions | The browser exposed a `tel:1930` helpline link and a `cybercrime.gov.in` report link. Neither link was activated; destination behavior on a phone remains pending. |
+
+The separate phone checklist above remains pending until Harshit reports observations from a real second-device run with synthetic or explicitly consented speech. Do not infer permission, disconnect, Stop → Start or warning-playback behavior from these read-only checks.
