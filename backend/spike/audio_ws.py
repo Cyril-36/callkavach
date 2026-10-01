@@ -84,13 +84,34 @@ async def _fail(ws: WebSocket, code: str, message: str, close_code: int) -> None
 TRUSTED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})  # local runs
 
 
-def _env_list(name: str) -> frozenset:
-    return frozenset(h.strip().lower() for h in os.environ.get(name, "").split(",") if h.strip())
+class ConfigError(RuntimeError):
+    """A deployment setting is invalid; the relay refuses to start rather than run unprotected."""
 
 
-PUBLIC_HOSTS = _env_list("CALLKAVACH_PUBLIC_HOSTS")
-ACCESS_CODE = os.environ.get("CALLKAVACH_ACCESS_CODE") or None
-MAX_SESSIONS_PER_HOUR = int(os.environ.get("CALLKAVACH_MAX_SESSIONS_PER_HOUR") or 0) or None
+def deployment_config(env=os.environ) -> tuple:
+    """(public hosts, access code or None, sessions-per-hour cap or None) from the environment.
+
+    Fails closed: a public host requires both a non-empty access code and a positive hourly cap, so an
+    omitted secret can never expose the paid providers. Unset or empty variables mean "not configured".
+    """
+    hosts = frozenset(h.strip().lower() for h in env.get("CALLKAVACH_PUBLIC_HOSTS", "").split(",") if h.strip())
+    code = env.get("CALLKAVACH_ACCESS_CODE") or None
+    if code is not None and not code.strip():
+        code = None
+    raw = (env.get("CALLKAVACH_MAX_SESSIONS_PER_HOUR") or "").strip()
+    cap = None
+    if raw:
+        if not raw.isascii() or not raw.isdigit() or int(raw) <= 0:
+            raise ConfigError(f"CALLKAVACH_MAX_SESSIONS_PER_HOUR must be a positive integer, got {raw!r}.")
+        cap = int(raw)
+    if hosts and (code is None or cap is None):
+        missing = [n for n, v in (("CALLKAVACH_ACCESS_CODE", code), ("CALLKAVACH_MAX_SESSIONS_PER_HOUR", cap)) if v is None]
+        raise ConfigError(f"CALLKAVACH_PUBLIC_HOSTS is set, so {' and '.join(missing)} must also be set; "
+                          "refusing to serve a public host without an access code and an hourly session cap.")
+    return hosts, code, cap
+
+
+PUBLIC_HOSTS, ACCESS_CODE, MAX_SESSIONS_PER_HOUR = deployment_config()
 ACCESS_DENIED_DELAY_S = 1.0  # slows guessing the code
 _session_starts = deque()  # monotonic start times of sessions that passed every check
 _DEFAULT_PORTS = {"http": 80, "ws": 80, "https": 443, "wss": 443}
@@ -111,7 +132,9 @@ def _host_port(netloc: str, scheme: str):
 def _trusted_request(ws: WebSocket) -> bool:
     """Host must be a trusted local host; a browser Origin must be exactly that host and port.
     A configured public host (behind a TLS proxy, so the relay sees no port or scheme) is accepted only
-    from a browser whose Origin is exactly https://that-host; a request without an Origin is refused.
+    from a browser whose Origin is exactly https://that-host, with no Host port or port 443; a request
+    without an Origin is refused, and so is every public-host request unless an access code and an hourly
+    cap are configured (a second guard behind deployment_config).
 
     The Host allowlist stops DNS rebinding (an attacker's domain resolving to 127.0.0.1 would send a
     matching Host and Origin of that domain). Clients without an Origin (non-browser, e.g.
@@ -120,7 +143,9 @@ def _trusted_request(ws: WebSocket) -> bool:
     host = _host_port(ws.headers.get("host", ""), ws.url.scheme)
     origin = ws.headers.get("origin")
     if host is not None and host[0] in PUBLIC_HOSTS and host[0] not in TRUSTED_HOSTS:
-        return origin is not None and origin.lower() in (f"https://{host[0]}", f"https://{host[0]}:443")
+        explicit_port = urlsplit(f"//{ws.headers.get('host', '')}").port  # parsed above, so this cannot raise
+        return (ACCESS_CODE is not None and MAX_SESSIONS_PER_HOUR is not None and explicit_port in (None, 443)
+                and origin is not None and origin.lower() in (f"https://{host[0]}", f"https://{host[0]}:443"))
     if host is None or host[0] not in TRUSTED_HOSTS:
         return False
     if origin is None:

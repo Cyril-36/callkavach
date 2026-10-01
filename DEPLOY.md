@@ -23,9 +23,13 @@ Put these in the host's secret or environment settings, never in Git or the imag
 
 The host sets `PORT`.
 
+**The relay refuses to start (`ConfigError`) when:**
+- `CALLKAVACH_PUBLIC_HOSTS` is set without both a non-empty `CALLKAVACH_ACCESS_CODE` and `CALLKAVACH_MAX_SESSIONS_PER_HOUR`, so a forgotten secret can't expose the paid providers; or
+- `CALLKAVACH_MAX_SESSIONS_PER_HOUR` is anything but a positive integer.
+
 ## What the relay checks on a public host
 
-- **Host and Origin:** the Host must be listed in `CALLKAVACH_PUBLIC_HOSTS`, and the browser's Origin must be exactly `https://` plus that host. Anything else, including a client without an Origin, is refused before a session opens.
+- **Host and Origin:** the Host must be listed in `CALLKAVACH_PUBLIC_HOSTS`, with no port or port 443, and the browser's Origin must be exactly `https://` plus that host. Anything else, including a client without an Origin, is refused before a session opens.
 - **Access code:** a missing or wrong code is refused before any provider connection, with a 1 s delay.
 - **Hourly cap:** when it's reached, new sessions are refused before any provider connection.
 - **Existing limits:** 4 concurrent sessions, 15 minutes and 5 s of queued audio per session.
