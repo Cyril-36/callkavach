@@ -350,6 +350,30 @@ def test_speech_events_and_final_segments_are_forwarded_once(client):
     assert stopped["transcription"] == "complete" and stopped["reason"] is None
 
 
+@pytest.mark.parametrize("request_id", ["session-id", None])
+@pytest.mark.parametrize("second_text", ["second sentence", "first sentence"])
+def test_reused_provider_request_id_does_not_drop_later_utterances(client, request_id, second_text):
+    def speak(p, total):
+        if total == 3200:
+            p.emit(signal("START_SPEECH"), signal("END_SPEECH"), data(request_id, "first sentence"))
+        elif total == 6400:
+            p.emit(signal("START_SPEECH"), signal("END_SPEECH"), data(request_id, second_text))
+
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = speak
+        provider.on_flush = lambda p: None
+        stopped, events = stop_and_collect(ws, frames=2)
+
+    transcripts = [e for e in events if e["type"] == "transcript"]
+    base = request_id or "sarvam-final"
+    assert [(e["segment_id"], e["text"]) for e in transcripts] == [
+        (base, "first sentence"), (f"{base}#2", second_text)]
+    assert stopped["transcription"] == "complete" and stopped["segments"] == 2
+    assert stopped["analysis"]["analysed_segments"] == 2
+
+
 def test_stop_flushes_and_waits_for_the_final_transcript(client):
     def speak(p, total):
         if total == 3200:

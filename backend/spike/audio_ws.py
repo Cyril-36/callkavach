@@ -223,6 +223,8 @@ class _Relay:
         self.queued_samples = self.dropped_samples = self.segments = 0
         self.seen = set()  # forwarded (non-empty) final segment IDs
         self.final_ids = set()  # every distinct final result, including empty ones
+        self.final_signatures = {}  # (provider request ID, text) -> START_SPEECH count at delivery
+        self.final_id_counts = {}  # request IDs need not be unique per utterance
         self.utterances_started = 0  # START_SPEECH count; each needs one final result
         self.finals_before_flush = self.finals_after_flush = 0
         self.flush_sent_at = None  # loop time when the flush actually went to the provider
@@ -312,9 +314,22 @@ class _Relay:
                 await self.send(event)
                 continue
             if event["final"]:
-                if event["segment_id"] in self.final_ids:
-                    continue  # duplicate delivery of a result already counted
-                self.final_ids.add(event["segment_id"])
+                source_id = event["segment_id"]
+                if not isinstance(source_id, str) or not source_id:
+                    source_id = None
+                signature = (source_id, event["text"])
+                if self.final_signatures.get(signature) == self.utterances_started:
+                    continue  # same final delivered twice without a new utterance
+                self.final_signatures[signature] = self.utterances_started
+                base_id = source_id or "sarvam-final"
+                n = self.final_id_counts.get(base_id, 0) + 1
+                local_id = base_id if n == 1 else f"{base_id}#{n}"
+                while local_id in self.final_ids:
+                    n += 1
+                    local_id = f"{base_id}#{n}"
+                self.final_id_counts[base_id] = n
+                event["segment_id"] = local_id
+                self.final_ids.add(local_id)
                 if self.flush_sent_at is None:
                     self.finals_before_flush += 1
                 else:
