@@ -79,13 +79,13 @@ Fill this record only from an observed run. Use synthetic or explicitly consente
 | Run field | Observed value |
 | --- | --- |
 | Public HTTPS URL and deployed commit | [https://callkavach.onrender.com/](https://callkavach.onrender.com/) supplied by Harshit and reachable over HTTPS on 1 October 2026. The deployed commit was not independently identified; `f356999` in the evaluation report identifies the replay run's source commit, not necessarily the deployed app commit. |
-| Date/time (IST), phone model, OS and browser/version | Pending |
-| Input source and consent/synthetic status | Pending |
-| Access-code configuration and session-cap behavior | Pending; do not record the code itself |
+| Date/time (IST), phone model, OS and browser/version | 1 October 2026; Realme 11 Pro, Android 15, reported by Harshit. Time and browser/version pending. |
+| Input source and consent/synthetic status | Pending; no listening outcome was reported for the phone attempt. |
+| Access-code configuration and session-cap behavior | The phone displayed **access code needed**; Harshit did not report an authenticated session or session-cap test. The code itself must remain private. |
 
 | Phone check | Observed result | Private evidence reference |
 | --- | --- | --- |
-| Page loads over HTTPS; permission allowed; second-device listening starts | Pending | Pending |
+| Page loads over HTTPS; permission allowed; second-device listening starts | Harshit reached the access-code requirement on the phone. Microphone permission and second-device listening remain pending. | Harshit's 1 October report; no recording or transcript |
 | Microphone permission denied; page clearly says it is not listening | Pending | Pending |
 | Microphone or network disconnect; warning status does not imply a safe call | Pending | Pending |
 | Stop → Start creates a fresh session; note whether Stop was confirmed or analysis cut off | Pending | Pending |
@@ -107,3 +107,5 @@ These checks used the public site in the Codex in-app browser and HTTP GET/HEAD 
 | Help actions | The browser exposed a `tel:1930` helpline link and a `cybercrime.gov.in` report link. Neither link was activated; destination behavior on a phone remains pending. |
 
 The separate phone checklist above remains pending until Harshit reports observations from a real second-device run with synthetic or explicitly consented speech. Do not infer permission, disconnect, Stop → Start or warning-playback behavior from these read-only checks.
+
+The deployed page's **Settings** panel has an **Access code (only if this server asks for one)** field saved on the device. Cyril must provide any tester code privately; it should be entered on the phone and never copied into this QA record. The reported access-code gate does not establish that the microphone, provider pipeline or warning playback works.
