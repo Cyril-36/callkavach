@@ -18,13 +18,15 @@ test("start message matches the relay contract and only supported languages are 
   assert.deepEqual(LANGS.map((l) => l.stt), ["hi-IN", "te-IN", "en-IN"]);
   assert.deepEqual(startMessage("te"), { type: "start", encoding: "pcm_s16le", channels: 1, sample_rate: 16000, language_code: "te-IN" });
   assert.equal(startMessage("ta").language_code, "hi-IN", "an unsupported code never reaches the relay");
+  assert.deepEqual(startMessage("hi", "kavach-demo"), { type: "start", encoding: "pcm_s16le", channels: 1, sample_rate: 16000, language_code: "hi-IN", access_code: "kavach-demo" });
+  assert.equal("access_code" in startMessage("hi", ""), false, "no empty code is sent");
   assert.deepEqual(stopMessage(), { type: "stop" });
 });
 
 test("the app sends no text message other than start and stop (the relay ends the session on anything else)", () => {
   const src = readFileSync(new URL("./app.js", import.meta.url), "utf8");
   const sends = [...src.matchAll(/\.send\(JSON\.stringify\(([^)]*\))\)/g)].map((m) => m[1]);
-  assert.deepEqual(sends.sort(), ["startMessage(langCode)", "stopMessage()"]);
+  assert.deepEqual(sends.sort(), ["startMessage(langCode, state.accessCode)", "stopMessage()"]);
   assert.doesNotMatch(src, /type: "(pause|resume|gap)"/);
 });
 
@@ -155,4 +157,12 @@ test("Stop keeps streaming silence only while a sentence is open or segments are
   s = reduce(s, risk({ analysis: "unavailable", error: "timed out", analysed_segments: 1, unanalysed_segments: 1 }), 14);
   assert.equal(needsDrain(s), false, "a failed check is reported, not waited on");
   assert.ok(STOP_DRAIN_MAX_S <= 15);
+});
+
+test("access refusals and the hourly limit are their own failures, not generic server errors", () => {
+  const denied = reduce(listening(), { type: "error", code: "access_denied", message: "Access code missing or wrong." }, 0);
+  assert.equal(denied.phase, "accessdenied");
+  const quota = reduce(listening(), { type: "error", code: "session_quota", message: "This server's limit of 20 sessions per hour has been reached. Try again later." }, 0);
+  assert.equal(quota.phase, "quota");
+  assert.match(quota.error, /20 sessions per hour/);
 });

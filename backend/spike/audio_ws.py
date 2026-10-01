@@ -24,9 +24,20 @@ and a browser Origin must match that host and port exactly; anything else is ref
 session is opened. Browsers always send Origin on WebSocket upgrades; non-browser clients (such as
 relay_smoke.py) send none and are allowed on a trusted Host. An Origin check is not authentication - any non-browser client can set or omit
 the header - so a public deployment additionally needs authentication and rate limits.
+
+Deployment (all off unless set; see DEPLOY.md):
+  CALLKAVACH_PUBLIC_HOSTS           comma-separated host names served over https behind a TLS proxy; such a
+                                    Host is accepted only with an Origin of exactly https://that-host
+  CALLKAVACH_ACCESS_CODE            shared code every session must send as start.access_code
+  CALLKAVACH_MAX_SESSIONS_PER_HOUR  server-wide cap on sessions that reach the paid providers
+Both session checks run before any provider connection, so a refused session costs nothing.
 """
 import asyncio
+import hmac
 import json
+import os
+import time
+from collections import deque
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -70,7 +81,18 @@ async def _fail(ws: WebSocket, code: str, message: str, close_code: int) -> None
     await ws.close(code=close_code)
 
 
-TRUSTED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})  # local spike only
+TRUSTED_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})  # local runs
+
+
+def _env_list(name: str) -> frozenset:
+    return frozenset(h.strip().lower() for h in os.environ.get(name, "").split(",") if h.strip())
+
+
+PUBLIC_HOSTS = _env_list("CALLKAVACH_PUBLIC_HOSTS")
+ACCESS_CODE = os.environ.get("CALLKAVACH_ACCESS_CODE") or None
+MAX_SESSIONS_PER_HOUR = int(os.environ.get("CALLKAVACH_MAX_SESSIONS_PER_HOUR") or 0) or None
+ACCESS_DENIED_DELAY_S = 1.0  # slows guessing the code
+_session_starts = deque()  # monotonic start times of sessions that passed every check
 _DEFAULT_PORTS = {"http": 80, "ws": 80, "https": 443, "wss": 443}
 
 
@@ -88,15 +110,19 @@ def _host_port(netloc: str, scheme: str):
 
 def _trusted_request(ws: WebSocket) -> bool:
     """Host must be a trusted local host; a browser Origin must be exactly that host and port.
+    A configured public host (behind a TLS proxy, so the relay sees no port or scheme) is accepted only
+    from a browser whose Origin is exactly https://that-host; a request without an Origin is refused.
 
     The Host allowlist stops DNS rebinding (an attacker's domain resolving to 127.0.0.1 would send a
     matching Host and Origin of that domain). Clients without an Origin (non-browser, e.g.
     relay_smoke.py) are accepted only on a trusted Host.
     """
     host = _host_port(ws.headers.get("host", ""), ws.url.scheme)
+    origin = ws.headers.get("origin")
+    if host is not None and host[0] in PUBLIC_HOSTS and host[0] not in TRUSTED_HOSTS:
+        return origin is not None and origin.lower() in (f"https://{host[0]}", f"https://{host[0]}:443")
     if host is None or host[0] not in TRUSTED_HOSTS:
         return False
-    origin = ws.headers.get("origin")
     if origin is None:
         return True
     parts = urlsplit(origin)
@@ -300,6 +326,21 @@ async def _session(ws: WebSocket) -> None:
     if language not in LANGUAGES:
         await _fail(ws, "unsupported_language", f"language_code must be one of {LANGUAGES}, got {language!r}.", 1003)
         return
+    if ACCESS_CODE is not None:
+        code = start.get("access_code")
+        if not isinstance(code, str) or not hmac.compare_digest(code.encode(), ACCESS_CODE.encode()):
+            await asyncio.sleep(ACCESS_DENIED_DELAY_S)
+            await _fail(ws, "access_denied", "Access code missing or wrong.", 1008)
+            return
+    if MAX_SESSIONS_PER_HOUR is not None:
+        now = time.monotonic()
+        while _session_starts and now - _session_starts[0] > 3600:
+            _session_starts.popleft()
+        if len(_session_starts) >= MAX_SESSIONS_PER_HOUR:
+            await _fail(ws, "session_quota", f"This server's limit of {MAX_SESSIONS_PER_HOUR} sessions per hour "
+                                             "has been reached. Try again later.", 1013)
+            return
+        _session_starts.append(now)
     try:
         provider = await connect_provider(language)
     except ProviderError as e:

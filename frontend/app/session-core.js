@@ -40,8 +40,10 @@ export function langByCode(code) {
 }
 
 // The only two text messages the relay accepts. Anything else after start ends the session.
-export function startMessage(langCode) {
-  return { type: "start", encoding: "pcm_s16le", channels: 1, sample_rate: SAMPLE_RATE, language_code: langByCode(langCode).stt };
+// access_code is sent only when set; a deployed relay with CALLKAVACH_ACCESS_CODE requires it.
+export function startMessage(langCode, accessCode = "") {
+  const m = { type: "start", encoding: "pcm_s16le", channels: 1, sample_rate: SAMPLE_RATE, language_code: langByCode(langCode).stt };
+  return accessCode ? { ...m, access_code: accessCode } : m;
 }
 export const stopMessage = () => ({ type: "stop" });
 
@@ -92,6 +94,8 @@ export function reduce(s, m, t) {
     case "gap":
       return { ...s, gaps: [...s.gaps, { t, dur: Number(m.duration_s) || 0, source: "server" }] };
     case "error":
+      if (m.code === "access_denied") return { ...s, phase: "accessdenied", connection: "closed", error: m.message || "Access code missing or wrong." };
+      if (m.code === "session_quota") return { ...s, phase: "quota", connection: "closed", error: m.message || "Session limit reached." };
       return { ...s, phase: "servererror", connection: "closed", error: m.message || m.code || "The server reported an error." };
     case "stopped":
       return { ...s, phase: "stopped", connection: "closed", speaking: false, stopInfo: readStopped(m, s) };

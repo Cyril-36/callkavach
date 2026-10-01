@@ -952,3 +952,86 @@ def test_pages_are_served_from_the_relay_origin():
     spike = client.get("/spike/")
     assert spike.status_code == 200 and "capture.js" in spike.text
     assert client.get("/spike/lifecycle.test.html").status_code == 200
+
+
+# --- deployment settings: public host, access code, hourly session cap (all off by default) ---
+
+@pytest.fixture
+def public_host(monkeypatch):
+    monkeypatch.setattr(audio_ws, "PUBLIC_HOSTS", frozenset({"callkavach.example.app"}))
+
+
+@pytest.mark.parametrize("host,origin", [
+    ("callkavach.example.app", "https://callkavach.example.app"),
+    ("CallKavach.Example.App", "https://callkavach.example.app"),
+    ("callkavach.example.app:443", "https://callkavach.example.app:443"),
+])
+def test_configured_public_host_is_accepted_only_from_its_https_origin(client, monkeypatch, public_host, host, origin):
+    calls = counting_provider(monkeypatch)
+    with client.websocket_connect("/ws/audio", headers={"host": host, "origin": origin}) as ws:
+        open_session(ws)
+    assert calls == ["te-IN"]
+
+
+@pytest.mark.parametrize("host,origin", [
+    ("callkavach.example.app", None),  # non-browser clients get no access on a public host
+    ("callkavach.example.app", "http://callkavach.example.app"),  # not https
+    ("callkavach.example.app", "https://evil.example"),
+    ("callkavach.example.app", "https://callkavach.example.app.evil.example"),
+    ("callkavach.example.app", "https://callkavach.example.app/path"),
+    ("callkavach.example.app", "https://callkavach.example.app:8443"),
+    ("other.example.app", "https://other.example.app"),  # not configured
+    ("evil.example", "https://callkavach.example.app"),
+])
+def test_public_host_refuses_anything_but_its_own_https_origin(client, monkeypatch, public_host, host, origin):
+    calls = counting_provider(monkeypatch)
+    headers = {"host": host, **({"origin": origin} if origin else {})}
+    with pytest.raises(WebSocketDisconnect) as refused:
+        with client.websocket_connect("/ws/audio", headers=headers) as ws:
+            ws.send_json(START)
+            ws.receive_json()
+    assert refused.value.code == 1008
+    assert calls == [] and audio_ws.active_sessions == 0
+
+
+def test_public_hosts_are_off_by_default():
+    assert audio_ws.PUBLIC_HOSTS == frozenset() and audio_ws.ACCESS_CODE is None and audio_ws.MAX_SESSIONS_PER_HOUR is None
+
+
+@pytest.mark.parametrize("start", [START, {**START, "access_code": "wrong"}, {**START, "access_code": 1234}])
+def test_missing_or_wrong_access_code_is_refused_before_any_provider_session(client, monkeypatch, start):
+    calls = counting_provider(monkeypatch)
+    monkeypatch.setattr(audio_ws, "ACCESS_CODE", "kavach-demo")
+    monkeypatch.setattr(audio_ws, "ACCESS_DENIED_DELAY_S", 0.0)
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json(start)
+        expect_error(ws, "access_denied", 1008)
+    assert calls == [] and RecordingVerifier.instances == []
+    wait_for_no_sessions()
+
+
+def test_correct_access_code_opens_the_session(client, monkeypatch):
+    calls = counting_provider(monkeypatch)
+    monkeypatch.setattr(audio_ws, "ACCESS_CODE", "kavach-demo")
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws, {**START, "access_code": "kavach-demo"})
+    assert calls == ["te-IN"]
+
+
+def test_hourly_session_cap_refuses_further_sessions_before_any_provider_session(client, monkeypatch):
+    calls = counting_provider(monkeypatch)
+    monkeypatch.setattr(audio_ws, "MAX_SESSIONS_PER_HOUR", 2)
+    monkeypatch.setattr(audio_ws, "_session_starts", audio_ws.deque())
+    for _ in range(2):
+        with client.websocket_connect("/ws/audio") as ws:
+            open_session(ws)
+        wait_for_no_sessions()
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json(START)
+        msg = expect_error(ws, "session_quota", 1013)
+    assert "2 sessions per hour" in msg["message"]
+    assert calls == ["te-IN", "te-IN"]
+    audio_ws._session_starts[0] -= 3601  # the oldest start leaves the window
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+    assert len(calls) == 3
