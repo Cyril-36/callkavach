@@ -33,7 +33,7 @@ Open http://127.0.0.1:8766/. For a local run with no paid calls, put `STT_PROVID
 
 ## Warning clips
 
-Expected at `/assets/warnings/{amber|red|test}-{hi|te|en}.mp3` (or `.wav`), from the repository's `assets/` folder. If a clip is missing, the page says spoken warnings are unavailable and shows the warning on screen only.
+Expected at `/assets/warnings/{amber|red}-{hi|te|en}.mp3` (or `.wav`), from the repository's `assets/` folder. The sound test plays the amber clip in the chosen language. If a clip is missing, the page says spoken warnings are unavailable and shows the warning on screen only.
 
 ## Tests
 

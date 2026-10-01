@@ -9,7 +9,7 @@ import {
 import { readReport } from "./eval-report.js";
 
 const READY_TIMEOUT_MS = 12000; // includes the relay opening the transcription session
-const CLIP_BASE = "/assets/warnings"; // {amber|red|test}-{lang}.mp3 (or .wav)
+const CLIP_BASE = "/assets/warnings"; // {amber|red}-{lang}.mp3 (or .wav)
 const REPORT_URL = "eval/report.json";
 const LOG_SCHEMA = "callkavach.session_log.v1";
 const SAMPLES = [ // synthetic TTS from backend/spike/make_samples.sh, served from /samples/
@@ -324,15 +324,12 @@ async function playClip(level, why, lang = (rt && rt.lang) || state.lang) {
   let buf;
   try { buf = await loadClip(lang, level); }
   catch {
-    if (level === "test") { try { buf = await loadClip(lang, "amber"); } catch {} }
-    if (!buf) {
-      if (state.clipTok !== token) return;
-      state.clipTok = null;
-      if (level !== "test") state.clipStatus[lang] = "missing";
-      state.playback = { state: "error", level, why, lang, msg: `Couldn’t play the warning sound (${CLIP_BASE}/${level}-${lang}).` };
-      if (why === "test") state.test = { state: "error", msg: `Test failed: no clip at ${CLIP_BASE}/*-${lang}. Warnings will only appear on screen.` };
-      render(); return;
-    }
+    if (state.clipTok !== token) return;
+    state.clipTok = null;
+    state.clipStatus[lang] = "missing";
+    state.playback = { state: "error", level, why, lang, msg: `Couldn’t play the warning sound (${CLIP_BASE}/${level}-${lang}).` };
+    if (why === "test") state.test = { state: "error", msg: `Test failed: no clip at ${CLIP_BASE}/${level}-${lang}. Warnings will only appear on screen.` };
+    render(); return;
   }
   if (state.clipTok !== token) return;
   const o = ensureOut();
@@ -450,7 +447,7 @@ const ACTIONS = {
   settings: () => { state.settingsOpen = !state.settingsOpen; render(); },
   start: () => startLive(),
   stop: () => stopSession(),
-  test: () => { ensureOut(); playClip("test", "test"); },
+  test: () => { ensureOut(); playClip("amber", "test"); },
   testYes: () => { state.test = { state: "yes" }; render(); },
   testNo: () => { state.test = { state: "no" }; render(); },
   silence: () => { stopClip(); if (state.mode === "replay") state.replay.sound = false; else state.silenced = true; render(); },
@@ -664,7 +661,7 @@ function warningView(s) {
 
   const ts = state.test;
   if (src === "live" && ts) {
-    const line = ts.state === "playing" ? `Playing the ${lname} test clip…` : ts.state === "ask" ? "Did you hear it clearly from where you’ll be sitting?" : ts.state === "yes" ? "Sound works. Keep this device’s volume up during the call." : ts.state === "no" ? "Turn up this device’s volume, switch off silent mode, and keep it close. Then test again." : ts.msg;
+    const line = ts.state === "playing" ? `Playing the ${lname} amber warning clip…` : ts.state === "ask" ? "Did you hear it clearly from where you’ll be sitting?" : ts.state === "yes" ? "Sound works. Keep this device’s volume up during the call." : ts.state === "no" ? "Turn up this device’s volume, switch off silent mode, and keep it close. Then test again." : ts.msg;
     html += `<div class="row" style="padding:12px 14px;border-radius:12px;border:1.5px solid currentColor;font-size:16px"><span class="mono" style="font-size:12px;font-weight:700;letter-spacing:.08em">SOUND TEST</span><span style="flex:1;min-width:200px">${esc(line)}</span>${ts.state === "ask" ? `<div class="row" style="gap:8px"><button class="btn btn-sm" data-act="testYes">Yes, clearly</button><button class="btn btn-sm" data-act="testNo">No</button></div>` : ""}</div>`;
   }
 
@@ -893,7 +890,7 @@ function render() {
   patch("confirm", cs ? `<div class="confirm"><span style="font-size:17px;font-weight:700;flex:1;min-width:240px">${state.s?.source === "live" ? "Live listening is on. Switching stops it and releases the microphone." : "A sample is being analysed. Switching stops it."}</span><div class="row" style="gap:8px"><button class="btn-primary" style="background:#17191E;color:#FBF9F4;min-height:48px;font-size:16px" data-act="confirmYes">${state.s?.source === "live" ? "Stop listening and switch" : "Stop and switch"}</button><button class="btn" data-act="confirmNo">Keep going</button></div></div>` : "");
   patch("settings", state.settingsOpen ? `<section class="card" style="margin-top:14px"><div class="card-h"><h3 class="t">Settings</h3><span class="sub">Saved on this device</span></div>
     <label class="row" style="gap:10px;font-size:16px"><input type="checkbox" id="autoSpeak" ${state.autoSpeak ? "checked" : ""} style="width:22px;height:22px;accent-color:#17191E">Play the spoken warning automatically on amber or red</label>
-    <dl style="margin:0;display:grid;grid-template-columns:minmax(0,200px) minmax(0,1fr);gap:6px 14px;font-size:15px"><dt style="font-weight:700">Audio is sent to</dt><dd class="mono" style="margin:0">${esc(wsUrl())} (this page’s own server only)</dd><dt style="font-weight:700">Warning clips</dt><dd class="mono" style="margin:0">${CLIP_BASE}/{amber|red|test}-{hi|te|en}.mp3 or .wav</dd><dt style="font-weight:700">Evaluation report</dt><dd class="mono" style="margin:0">${REPORT_URL}</dd></dl>
+    <dl style="margin:0;display:grid;grid-template-columns:minmax(0,200px) minmax(0,1fr);gap:6px 14px;font-size:15px"><dt style="font-weight:700">Audio is sent to</dt><dd class="mono" style="margin:0">${esc(wsUrl())} (this page’s own server only)</dd><dt style="font-weight:700">Warning clips</dt><dd class="mono" style="margin:0">${CLIP_BASE}/{amber|red}-{hi|te|en}.mp3 or .wav</dd><dt style="font-weight:700">Evaluation report</dt><dd class="mono" style="margin:0">${REPORT_URL}</dd></dl>
     <p class="note">The app never computes a score. It shows only the level and evidence the backend sends. Nothing is saved on the server; a session log is saved only when you press “Save session log”, as a file on this device.</p></section>` : "");
   $("session").hidden = mode === "eval";
   $("eval").hidden = mode !== "eval";
