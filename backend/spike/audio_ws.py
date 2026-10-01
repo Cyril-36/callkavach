@@ -35,18 +35,34 @@ Both session checks run before any provider connection, so a refused session cos
 import asyncio
 import hmac
 import json
+import logging
 import os
 import time
 from collections import deque
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from detector import Segment, SessionDetector
+import public_eval
+from detector import Segment, SessionDetector, redact_tokens
 from verifier_config import make_verifier
 from stt_provider import ProviderError, default_connector
+
+# Abuse monitoring: one line per refused or started session. Never the access code, audio or transcript.
+log = logging.getLogger("callkavach.relay")
+if not log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    log.addHandler(_handler)
+    log.setLevel(logging.INFO)
+
+
+def _peer(ws: WebSocket) -> str:
+    return ws.client.host if ws.client else "unknown"  # the real client with uvicorn --proxy-headers
+
 
 SAMPLE_RATE = 16000
 BYTES_PER_SAMPLE = 2
@@ -59,6 +75,7 @@ START_TIMEOUT_S = 10.0
 MAX_QUEUED_SECONDS = 5.0  # audio waiting to reach the provider; beyond this, frames are dropped
 FINALIZE_DEADLINE_S = 6.0  # whole Stop budget on the server: drain, flush, final results. Browser waits 8 s.
 FINALIZE_SETTLE_S = 1.0  # after the flush, the provider must be quiet this long with nothing open
+RECEIVE_IDLE_TIMEOUT_S = 30.0  # after start the browser sends a frame every 100 ms, even silence while muted
 PROVIDER_CLOSE_TIMEOUT_S = 1.0  # bounded provider shutdown: 6 s + 1 s stays inside the browser's 8 s
 connect_provider = default_connector()
 verifier_factory = make_verifier  # returns (verifier, None) or (None, reason); replaced in tests
@@ -160,10 +177,13 @@ def _trusted_request(ws: WebSocket) -> bool:
 async def audio(ws: WebSocket) -> None:
     global active_sessions
     if not _trusted_request(ws):
+        log.warning("refused_upgrade peer=%s host=%r origin=%r", _peer(ws), ws.headers.get("host", "")[:100],
+                    (ws.headers.get("origin") or "")[:100])
         await ws.close(code=1008)  # before accept: the upgrade is refused with HTTP 403, no session is opened
         return
     await ws.accept()
     if active_sessions >= MAX_SESSIONS:
+        log.warning("too_many_sessions peer=%s active=%d", _peer(ws), active_sessions)
         await _fail(ws, "too_many_sessions", f"At most {MAX_SESSIONS} sessions at once.", 1013)
         return
     active_sessions += 1
@@ -303,9 +323,11 @@ class _Relay:
                     continue  # utterance was not speech; counted, not shown
                 self.seen.add(event["segment_id"])
                 self.segments += 1
-                await self.send(event)
+                # Hand the segment to the detector before the (possibly slow) send to the browser, so a Stop
+                # that settles while this send waits can never report analysis complete without it.
                 if self.detector:  # finalized segments only, in arrival order; no speaker or other metadata
                     self.detector.add(Segment.from_event(event, self.session_ms()))
+                await self.send(event)
                 continue
             await self.send(event)
         if not self.closing:
@@ -325,7 +347,7 @@ class _Relay:
         self.failure = message
         self.failed.set()
         try:
-            await self.send({"type": "error", "code": "provider_error", "message": f"Transcription failed: {message}"})
+            await self.send({"type": "error", "code": "provider_error", "message": f"Transcription failed: {redact_tokens(message)}"})
             await self.ws.close(code=1011)
         except Exception:
             pass  # browser already gone
@@ -354,6 +376,7 @@ async def _session(ws: WebSocket) -> None:
     if ACCESS_CODE is not None:
         code = start.get("access_code")
         if not isinstance(code, str) or not hmac.compare_digest(code.encode(), ACCESS_CODE.encode()):
+            log.warning("access_denied peer=%s code_sent=%s", _peer(ws), isinstance(code, str) and bool(code))
             await asyncio.sleep(ACCESS_DENIED_DELAY_S)
             await _fail(ws, "access_denied", "Access code missing or wrong.", 1008)
             return
@@ -362,22 +385,29 @@ async def _session(ws: WebSocket) -> None:
         while _session_starts and now - _session_starts[0] > 3600:
             _session_starts.popleft()
         if len(_session_starts) >= MAX_SESSIONS_PER_HOUR:
+            log.warning("session_quota peer=%s limit=%d", _peer(ws), MAX_SESSIONS_PER_HOUR)
             await _fail(ws, "session_quota", f"This server's limit of {MAX_SESSIONS_PER_HOUR} sessions per hour "
                                              "has been reached. Try again later.", 1013)
             return
         _session_starts.append(now)
+    # The verifier is built before the paid transcription session opens, so a configuration error here
+    # can never leave a provider socket behind.
+    verifier, detector_unavailable = verifier_factory()
     try:
         provider = await connect_provider(language)
     except ProviderError as e:
-        await _fail(ws, "provider_unavailable", f"Transcription unavailable: {e}", 1011)
+        if verifier:
+            await verifier.close()
+        await _fail(ws, "provider_unavailable", f"Transcription unavailable: {redact_tokens(e)}", 1011)
         return
 
     relay = _Relay(ws, provider)
-    verifier, relay.detector_unavailable = verifier_factory()
+    relay.detector_unavailable = detector_unavailable
     if verifier:  # one session clock for segment receive times and risk emission times
         relay.detector = SessionDetector(verifier, send=relay.send_built, clock=relay.session_ms,
                                          call_timeout_s=DETECTOR_CALL_TIMEOUT_S)
     tasks = [asyncio.create_task(relay.guard(relay.pump())), asyncio.create_task(relay.guard(relay.read()))]
+    log.info("session_started peer=%s language=%s active=%d", _peer(ws), language, active_sessions)
     try:
         await relay.send({"type": "ready", **EXPECTED_FORMAT, "language_code": language,
                           "max_frame_bytes": MAX_FRAME_BYTES, "max_session_seconds": MAX_SESSION_SECONDS})
@@ -403,7 +433,12 @@ async def _session(ws: WebSocket) -> None:
 async def _receive_audio(ws: WebSocket, relay: _Relay) -> None:
     frames = samples = 0
     while True:
-        msg = await ws.receive()
+        try:
+            msg = await asyncio.wait_for(ws.receive(), RECEIVE_IDLE_TIMEOUT_S)
+        except asyncio.TimeoutError:  # a silent client must not hold a paid transcription session open
+            log.warning("idle_timeout peer=%s", _peer(ws))
+            await _fail(ws, "idle_timeout", f"No audio for {RECEIVE_IDLE_TIMEOUT_S:g} s; session closed.", 1008)
+            return
         if msg["type"] == "websocket.disconnect" or relay.failure:
             return
         data = msg.get("bytes")
@@ -466,6 +501,11 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
     if not relay.settled(loop.time()) and not reasons:
         # Every expected final arrived, but the provider was still sending when the deadline passed.
         reasons.append(f"the transcription provider had not settled within {FINALIZE_DEADLINE_S:g} s of stopping")
+    # Summarise, then stop the detector with no await in between: whatever the summary calls cancelled
+    # or never sent can no longer produce a risk event, before or after `stopped`.
+    analysis = _analysis_summary(relay) if relay.detector else {"status": "unavailable", "error": relay.detector_unavailable}
+    if relay.detector:
+        relay.detector.cancel()
     relay.closing = True
     close = relay.close_provider()
     await asyncio.wait([close], timeout=PROVIDER_CLOSE_TIMEOUT_S)
@@ -477,14 +517,29 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
                       "transcription": "incomplete" if reasons else "complete",
                       "reason": "; ".join(reasons) or None,
                       "provider_cleanup": cleanup,
-                      "analysis": _analysis_summary(relay) if relay.detector else
-                      {"status": "unavailable", "error": relay.detector_unavailable}})
+                      "analysis": analysis})
     await ws.close(code=1000)
 
 
 # Serve the pages from the same origin so they can reach /ws/audio: the listener app at /, the capture
 # spike and its lifecycle tests at /spike/. Synthetic sample WAVs (make_samples.sh, not in Git) and the
 # offline warning clips are mounted only when present on this machine.
+# The Evaluation tab's report comes from outside the repository (public_eval.py), never from a static file;
+# this route also shadows any file someone puts under frontend/app/eval/, so nothing there is served.
+@app.get("/eval/{name:path}")
+async def eval_report(name: str):
+    if name != "report.json":
+        raise HTTPException(404)
+    try:
+        report = public_eval.load()
+    except (public_eval.NotPublic, OSError, ValueError) as e:
+        log.warning("eval_report_refused reason=%s", str(e)[:120])
+        raise HTTPException(404, "the configured evaluation report is not a sanitised public export")
+    if report is None:
+        raise HTTPException(404, "no evaluation report is configured on this server")
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
+
+
 _ROOT = Path(__file__).resolve().parents[2]
 for _path, _dir in (("/samples", _ROOT / "backend" / "spike" / "samples"), ("/assets", _ROOT / "assets")):
     if _dir.is_dir():

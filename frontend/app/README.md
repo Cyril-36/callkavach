@@ -13,7 +13,11 @@ Open http://127.0.0.1:8766/. For a local run with no paid calls, put `STT_PROVID
 1. **Live microphone** (`#live`). It captures the speakerphone through this device's microphone and streams 16 kHz PCM to this page's own `/ws/audio`.
 2. **Analyse sample audio** (`#sample`). It sends a synthetic WAV from `/samples/` through the same real pipeline, paced in real time. Four offline-generated synthetic WAVs are included in the repository so this mode works in a clean checkout. To regenerate them on macOS, run `bash backend/spike/make_samples.sh`. The scam or genuine label is compared only when the run is complete.
 3. **Recorded replay** (`#replay`). It plays back a session log that you saved from Live or Sample mode with **Save session log**. The log is a local file (`callkavach.session_log.v1`) containing the relay's own messages, transcripts included. It is never uploaded and never committed. Nothing runs during replay.
-4. **Evaluation report** (`#eval`). It reads the static file `eval/report.json` next to this page and shows nothing if the file is missing. No example numbers are shipped.
+4. **Evaluation report** (`#eval`). It reads `/eval/report.json`, which the relay serves from `CALLKAVACH_EVAL_REPORT` or `CALLKAVACH_EVAL_REPORT_JSON` (`backend/spike/public_eval.py`). It never comes from a file in the repository; `frontend/app/eval/` is gitignored, and nothing under `/eval/` is served from it. The file is a `callkavach.public_eval.v1` export made by `node frontend/app/export-eval-report.mjs RAW.json PUBLIC.json`, which refuses an output path inside the repository.
+   - **What the export keeps:** a whitelist from a `backend/evaluation/run_pilot.py` result: aggregate metrics, per-call timing and status, failure *categories*, and the reproducibility manifest.
+   - **What it drops:** risk events, evidence quotes, detector summaries, verifier metadata and any free text.
+   - **Raw reports:** the raw runner report holds transcript-derived text. The server refuses to serve it, and `eval-report.js` refuses to display it.
+   - **No report:** if the file is missing, nothing is shown. No example numbers are shipped.
 
 ## Protocol (backend/spike/DETECTOR_CONTRACT.md)
 
@@ -34,7 +38,7 @@ Expected at `/assets/warnings/{amber|red|test}-{hi|te|en}.mp3` (or `.wav`), from
 ## Tests
 
 ```
-node --test frontend/app/session-core.test.js
+node --test frontend/app/session-core.test.js frontend/app/eval-report.test.js
 ```
 
 `session-core.js` holds the protocol, reducer and Stop classification, with no DOM. The tests also check that `app.js` sends no text message other than `start` and `stop`.
@@ -47,5 +51,13 @@ Browser lifecycle tests: run the relay with `STT_PROVIDER=mock LLM_PROVIDER=off`
 
 ## Not done here
 
-- **Phone access:** getUserMedia needs https, and the relay only trusts `localhost`, `127.0.0.1` and `[::1]` as Host. A phone can reach the app only after deployment with a configured host.
-- **Warning wording:** Hindi and Telugu spoken-warning copy is in `docs/warning-copy.md`; the on-screen text is English. Pilot-call language review is still pending.
+- **Phone access:** getUserMedia needs https. A phone reaches the app only after deployment with `CALLKAVACH_PUBLIC_HOSTS` set (see `DEPLOY.md`).
+- **Warning wording:** the reviewed spoken-warning sentence from `docs/warning-copy.md` is shown on the warning card in the session's language (a test keeps the two identical). The rest of the interface is English.
+
+## Phone behaviour
+
+- **Microphone capture:** the capture AudioContext is created inside the Start tap, which iOS Safari requires.
+- **Screen:** a screen wake lock is held while listening.
+- **Stalled microphone:** if no audio arrives for 4 s (screen locked, app in the background, another app took the microphone), the session fails visibly as "Microphone stopped" instead of showing "Listening".
+- **Muting during warnings:** the microphone is muted only while a clip is really playing. A clip that never reports its end is cut off after its length plus 1 s. Muted time is reported at Stop as not checked.
+- **15-minute limit:** sessions stop on their own at 14:30 of audio, before the relay's 15-minute limit.

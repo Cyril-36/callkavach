@@ -1108,3 +1108,236 @@ def test_relay_refuses_to_start_with_an_invalid_deployment_config(env, message):
     done = subprocess.run([sys.executable, "-c", "import audio_ws"], cwd=os.path.dirname(audio_ws.__file__),
                           env={**clean, **env}, capture_output=True, text=True, timeout=60)
     assert done.returncode != 0 and "ConfigError" in done.stderr and message in done.stderr
+
+
+# --- review fixes: ordering, late results, setup leaks, idle sessions, provider error text ---
+
+@pytest.mark.asyncio
+async def test_final_segment_reaches_the_detector_before_the_browser_send_completes():
+    """A slow browser socket must not let Stop see an idle detector that has not been given the segment."""
+    added, sends = [], []
+
+    class SlowWs:
+        async def send_json(self, msg):
+            sends.append((msg["type"], len(added)))
+            await asyncio.sleep(0.05)
+
+    class OneFinal:
+        async def events(self):
+            yield signal("START_SPEECH")
+            yield data("utt-1", "OTP batao")
+
+    class Detector:
+        def add(self, seg):
+            added.append(seg.segment_id)
+
+    relay = audio_ws._Relay(SlowWs(), OneFinal())
+    relay.closing = True  # the scripted provider ends after one result
+    relay.detector = Detector()
+    await relay.read()
+    assert added == ["utt-1"]
+    assert ("transcript", 1) in sends, f"the detector had the segment before the transcript was sent: {sends}"
+
+
+def test_in_flight_call_cannot_deliver_after_the_stop_summary(client, monkeypatch):
+    """The call would finish during the provider-close wait; the summary said it was cancelled, so it must be."""
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.4)
+    monkeypatch.setattr(audio_ws, "PROVIDER_CLOSE_TIMEOUT_S", 1.0)
+    use_provider(monkeypatch, close_delay=1.0)
+    use_verifier(monkeypatch, red_for_new, delay=0.7)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("tell me the OTP")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        stopped, events = stop_and_collect(ws)
+    assert stopped["analysis"]["cut_off_by_stop_deadline"] is True
+    assert not [e for e in events if e["type"] == "risk" and e["level"] == "red"], "a cancelled call delivered red"
+    v = RecordingVerifier.instances[0]
+    assert v.completed == 0 and v.cancelled == 1
+
+
+def test_verifier_is_closed_when_transcription_is_unavailable(client, monkeypatch):
+    async def connect(language_code):
+        raise ProviderError("down")
+    monkeypatch.setattr(audio_ws, "connect_provider", connect)
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json(START)
+        expect_error(ws, "provider_unavailable", 1011)
+    assert RecordingVerifier.instances and RecordingVerifier.instances[0].closed
+
+
+def test_verifier_configuration_error_never_opens_a_provider_session(client, monkeypatch):
+    calls = counting_provider(monkeypatch)
+
+    def broken():
+        raise RuntimeError("cannot read .env")
+    monkeypatch.setattr(audio_ws, "verifier_factory", broken)
+    with pytest.raises(Exception):
+        with client.websocket_connect("/ws/audio") as ws:
+            ws.send_json(START)
+            ws.receive_json()
+    assert calls == [], "a paid transcription session was opened before setup failed"
+    wait_for_no_sessions()
+
+
+def test_a_silent_client_cannot_hold_a_transcription_session(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "RECEIVE_IDLE_TIMEOUT_S", 0.2)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        msg = expect_error(ws, "idle_timeout", 1008)
+    assert "No audio" in msg["message"]
+    wait_for_no_sessions()
+    assert FakeProvider.instances[0].close_called
+
+
+def test_provider_error_text_is_safe_for_the_browser():
+    from detector import error_detail
+
+    class Resp:
+        def __init__(self, body, text=""):
+            self.body, self.text = body, text
+
+        def json(self):
+            if self.body is None:
+                raise ValueError("not json")
+            return self.body
+    key = "sk-" + "a1B2c3D4" * 5
+    assert "[redacted]" in error_detail(Resp({"error": {"message": f"Invalid API key {key}"}}))
+    assert key not in error_detail(Resp({"error": {"message": f"Invalid API key {key}"}}))
+    assert error_detail(Resp({"error": "quota exceeded"})) == "quota exceeded"  # a string error cannot raise
+    assert error_detail(Resp(None, text="<html>Bad gateway</html>")) == "<html>Bad gateway</html>"
+    assert "exceeded your current quota" in error_detail(Resp({"error": {"message": "You exceeded your current quota"}}))
+
+
+def test_refusals_and_starts_are_logged_without_secrets(client, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(audio_ws, "ACCESS_CODE", "kavach-demo")
+    monkeypatch.setattr(audio_ws, "ACCESS_DENIED_DELAY_S", 0.0)
+    caplog.set_level(logging.INFO, logger="callkavach.relay")
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json({**START, "access_code": "wrong-guess"})
+        expect_error(ws, "access_denied", 1008)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws, {**START, "access_code": "kavach-demo"})
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/audio", headers={"host": "evil.example"}) as ws:
+            ws.receive_json()
+    text = caplog.text
+    assert "access_denied" in text and "session_started" in text and "refused_upgrade" in text
+    assert "wrong-guess" not in text and "kavach-demo" not in text, "codes must never be logged"
+
+
+TOKEN = "sk_live_" + "Q7w9E2r4T6y8U1i3O5p7" * 2  # token-shaped, never a real key
+
+
+def test_transcription_provider_error_text_is_masked_for_the_browser(client):
+    """Sarvam WebSocket errors reach the browser through provider_failed; token-shaped text is masked."""
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        provider = FakeProvider.instances[0]
+        provider.on_audio = lambda p, total: p.emit(
+            {"type": "error", "data": {"error": f"invalid api-subscription-key {TOKEN}", "code": "unauthorized"}})
+        ws.send_bytes(b"\x00\x00" * 1600)
+        msg = expect_error(ws, "provider_error", 1011)
+    assert TOKEN not in msg["message"] and "[redacted]" in msg["message"]
+    assert msg["message"].startswith("Transcription failed: unauthorized: invalid api-subscription-key")
+
+
+def test_transcription_unavailable_error_text_is_masked_for_the_browser(client, monkeypatch):
+    async def connect(language_code):
+        raise ProviderError(f"could not connect to Sarvam (InvalidStatus: 403 for key {TOKEN})")
+    monkeypatch.setattr(audio_ws, "connect_provider", connect)
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json(START)
+        msg = expect_error(ws, "provider_unavailable", 1011)
+    assert TOKEN not in msg["message"] and "[redacted]" in msg["message"]
+
+
+# --- Evaluation report: only a sanitised public export, only from outside the repository ---
+
+PUBLIC_REPORT = {
+    "schema": "callkavach.public_eval.v1", "dataset": "multilingual_development_pilot",
+    "timing_basis": "synthetic_text_replay_with_real_detector_clock", "score_status": "provisional", "review_status": None,
+    "metrics": {"overall": {"scam_recall": {"numerator": 1, "denominator": 1}, "false_alarm_rate": {"numerator": 0, "denominator": 1},
+                            "warned_before_ask": {"numerator": 1, "denominator": 1}, "median_time_to_alert_ms": 15400,
+                            "detected_scams": 1, "missed_scams": 0, "scams_without_ask": 0},
+                "by_language": {"hi-en": {"scam_recall": {"numerator": 1, "denominator": 1}}}},
+    "amber_warning_rates": {"overall": {"genuine_amber_warning_rate": {"numerator": 0, "denominator": 1}}, "by_language": {}},
+    "latency": {"verifier_calls": 3, "median_verifier_latency_ms": 4100},
+    "failure_calls": 0,
+    "reproducibility": {"repo_commit": "75b8577", "provider": "aicredits", "model": "gemini-2.5-flash",
+                        "api_usage": {"reported_cost_total": 1.2, "reported_cost_unit": "provider-defined; not inferred by runner"}},
+    "calls": [{"call_id": "c1", "language": "hi-en", "first_warning_at_ms": 9100, "first_red_at_ms": 15400,
+               "status": "complete", "failures": ["provider HTTP 503"]}],
+}
+
+
+@pytest.fixture
+def no_eval_env(monkeypatch):
+    monkeypatch.delenv("CALLKAVACH_EVAL_REPORT", raising=False)
+    monkeypatch.delenv("CALLKAVACH_EVAL_REPORT_JSON", raising=False)
+    return monkeypatch
+
+
+def test_eval_report_is_served_only_when_configured(no_eval_env, tmp_path):
+    http = TestClient(audio_ws.app)
+    assert http.get("/eval/report.json").status_code == 404
+    path = tmp_path / "public.json"
+    path.write_text(json.dumps(PUBLIC_REPORT))
+    no_eval_env.setenv("CALLKAVACH_EVAL_REPORT", str(path))
+    r = http.get("/eval/report.json")
+    assert r.status_code == 200 and r.json() == PUBLIC_REPORT and r.headers["cache-control"] == "no-store"
+    no_eval_env.delenv("CALLKAVACH_EVAL_REPORT")
+    no_eval_env.setenv("CALLKAVACH_EVAL_REPORT_JSON", json.dumps(PUBLIC_REPORT))
+    assert http.get("/eval/report.json").json() == PUBLIC_REPORT
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda r: r["calls"][0].update(risk_events=[{"tactics": [{"evidence": [{"quote": "SENTINEL OTP batao"}]}]}]),
+    lambda r: r["calls"][0].update(failures=["#0 unknown tactic 'SENTINEL'"]),
+    lambda r: r["calls"][0].update(call_id="मैं बैंक से SENTINEL बोल रहा हूँ, OTP बताइए!"),
+    lambda r: r.update(schema="raw"),
+    lambda r: r["reproducibility"].update(raw_verifier={"text": "SENTINEL"}),
+    lambda r: r["metrics"]["overall"].update(notes="SENTINEL\nfree text"),
+])
+def test_a_report_that_is_not_the_public_form_is_never_served(no_eval_env, mutate):
+    import copy
+    bad = copy.deepcopy(PUBLIC_REPORT)
+    mutate(bad)
+    no_eval_env.setenv("CALLKAVACH_EVAL_REPORT_JSON", json.dumps(bad, ensure_ascii=False))
+    r = TestClient(audio_ws.app).get("/eval/report.json")
+    assert r.status_code == 404 and "SENTINEL" not in r.text
+
+
+def test_files_under_frontend_eval_are_never_served(no_eval_env):
+    """Even a raw report dropped into frontend/app/eval/ by mistake is not reachable."""
+    eval_dir = audio_ws._ROOT / "frontend" / "app" / "eval"
+    existed = eval_dir.exists()
+    eval_dir.mkdir(exist_ok=True)
+    raw = eval_dir / "report.json"
+    other = eval_dir / "raw.json"
+    try:
+        raw.write_text('{"calls": [{"risk_events": "SENTINEL"}]}')
+        other.write_text('{"SENTINEL": true}')
+        http = TestClient(audio_ws.app)
+        for path in ("/eval/report.json", "/eval/raw.json"):
+            r = http.get(path)
+            assert r.status_code == 404 and "SENTINEL" not in r.text, path
+    finally:
+        raw.unlink(missing_ok=True)
+        other.unlink(missing_ok=True)
+        if not existed:
+            eval_dir.rmdir()
+
+
+def test_derived_early_warning_and_review_update_pass_only_as_plain_values():
+    import copy
+    ok = copy.deepcopy(PUBLIC_REPORT)
+    ok["first_warning_before_ask"] = {"numerator": 5, "denominator": 5, "lead_min_ms": 6776, "lead_max_ms": 22509,
+                                      "scam_calls_with_failures": 0, "basis": "synthetic_text_replay_frozen_run_plus_development_ground_truth"}
+    ok["review_update"] = "language review: 10 of 10 pilot calls accepted (docs/pilot-language-review.md, 1 Oct 2026)"
+    assert audio_ws.public_eval.validate(ok) is ok
+    for bad in ({**ok, "review_update": "SENTINEL; free text\nwith a newline"},
+                {**ok, "first_warning_before_ask": {**ok["first_warning_before_ask"], "quotes": ["SENTINEL"]}}):
+        with pytest.raises(audio_ws.public_eval.NotPublic):
+            audio_ws.public_eval.validate(bad)

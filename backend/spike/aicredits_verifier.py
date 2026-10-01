@@ -12,7 +12,7 @@ import json
 
 import httpx
 
-from detector import VerifierError
+from detector import VerifierError, error_detail
 from gemini_verifier import SYSTEM_PROMPT
 
 DEFAULT_BASE_URL = "https://api.aicredits.in"
@@ -48,11 +48,7 @@ class AICreditsVerifier:
         except httpx.HTTPError as e:
             raise VerifierError(f"AICredits request failed ({type(e).__name__})") from e
         if r.status_code != 200:
-            try:
-                detail = str((r.json().get("error") or {}).get("message", ""))[:200]
-            except ValueError:
-                detail = r.text[:200]
-            raise VerifierError(f"AICredits HTTP {r.status_code}: {detail}")
+            raise VerifierError(f"AICredits HTTP {r.status_code}: {error_detail(r)}")
         try:
             data = r.json()
             choice = data["choices"][0]

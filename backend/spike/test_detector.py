@@ -667,3 +667,25 @@ async def test_timestamps_are_taken_at_the_send_boundary_after_a_delayed_send_lo
     assert sent[0]["emitted_at_ms"] == 1350, "stamped when the lock was acquired, not when analysis finished"
     assert sent[0]["first_red_at_ms"] == 1350 and sent[0]["first_warning_at_ms"] == 1350
     assert d.summary()["first_red_at_ms"] == 1350 and d.summary()["first_warning_at_ms"] == 1350
+
+
+# --- quote matching tolerates invisible Unicode and punctuation differences, never different words ---
+
+def test_quote_normalisation_matches_equivalent_text():
+    from detector import _norm
+    segment = _norm("ఈ కైవైసీ అప్‌డేట్ చేయండి। OTP “చెప్పండి”... We will block your SIM.")
+    for quote in [
+        "కైవైసీ అప్డేట్",  # zero-width non-joiner dropped by the model
+        "కైవైసీ",  # same Telugu word, decomposed vowel sign
+        'OTP "చెప్పండి"',  # straight instead of curly quotes
+        "we will block your sim",  # no final full stop, different case
+        "చేయండి. OTP",  # danda written as a full stop
+    ]:
+        assert _norm(quote) in segment, quote
+
+
+def test_quote_normalisation_still_rejects_different_words():
+    from detector import _norm
+    segment = _norm("Never share your OTP with anyone.")
+    assert _norm("share your OTP with me") not in segment
+    assert _norm("...") == "", "a quote of punctuation only must not match everything"

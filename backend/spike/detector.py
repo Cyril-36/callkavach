@@ -25,6 +25,7 @@ Design
 """
 import asyncio
 import re
+import unicodedata
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -57,7 +58,18 @@ def redact(text: str) -> str:
     return _NUMBER.sub("[NUMBER]", text)
 
 
+_INVISIBLE = dict.fromkeys(map(ord, "\u00ad\u200b\u200c\u200d\u2060\ufeff"))  # soft hyphen, zero-width chars
+
+
 def _norm(text: str) -> str:
+    """Comparison form for quote checks, applied identically to the quote and its segment.
+
+    Unicode NFKC (Telugu and Devanagari vowel signs can be composed or decomposed), invisible joiners
+    removed, every punctuation character (danda, curly quotes, ellipsis, brackets...) turned into a
+    space, case folded and whitespace collapsed. The words themselves must still match in order.
+    """
+    text = unicodedata.normalize("NFKC", text).translate(_INVISIBLE)
+    text = "".join(" " if unicodedata.category(c).startswith("P") else c for c in text)
     return " ".join(text.casefold().split())
 
 
@@ -88,6 +100,28 @@ def risk_level(tactics: set) -> tuple:
 
 class VerifierError(Exception):
     pass
+
+
+_LONG_TOKEN = re.compile(r"[A-Za-z0-9_\-]{24,}")
+
+
+def redact_tokens(text: str, limit: int = 200) -> str:
+    """Browser-safe provider text: anything shaped like a key or token (24+ word characters) is masked."""
+    return _LONG_TOKEN.sub("[redacted]", str(text)[:limit])
+
+
+def error_detail(response) -> str:
+    """Short, browser-safe text from a provider's error response.
+
+    The text reaches the browser in risk.error, so anything shaped like a key or token (24+ word
+    characters) is masked, and a non-object "error" field cannot raise.
+    """
+    try:
+        err = response.json().get("error")
+        detail = err.get("message", "") if isinstance(err, dict) else str(err or "")
+    except (ValueError, AttributeError):
+        detail = response.text
+    return redact_tokens(detail)
 
 
 @dataclass
@@ -148,6 +182,10 @@ class SessionDetector:
 
     def idle(self) -> bool:
         return not self.pending and not self.in_flight
+
+    def cancel(self) -> None:
+        """Stop the worker now, synchronously: no result can be applied or emitted after this returns."""
+        self._task.cancel()
 
     async def close(self) -> None:
         self._task.cancel()
@@ -262,7 +300,7 @@ class SessionDetector:
                 rejected.append(f"#{i} unknown status {status[:40]!r}")
             elif sid not in window:
                 rejected.append(f"#{i} segment {sid[:40]!r} not in this request")
-            elif not quote or len(quote) > MAX_QUOTE_CHARS:
+            elif not _norm(quote) or len(quote) > MAX_QUOTE_CHARS:
                 rejected.append(f"#{i} empty or over-long quote")
             elif _norm(quote) not in window[sid][1]:
                 rejected.append(f"#{i} quote not found in {sid[:40]}")

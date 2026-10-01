@@ -7,7 +7,7 @@ import json
 
 import httpx
 
-from detector import TACTICS, VerifierError
+from detector import TACTICS, VerifierError, error_detail
 
 API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 PROMPT_VERSION = "tactics-v1"
@@ -87,11 +87,7 @@ class GeminiVerifier:
         except httpx.HTTPError as e:
             raise VerifierError(f"Gemini request failed ({type(e).__name__})") from e
         if r.status_code != 200:
-            try:
-                detail = r.json().get("error", {}).get("message", "")[:200]
-            except ValueError:
-                detail = r.text[:200]
-            raise VerifierError(f"Gemini HTTP {r.status_code}: {detail}")
+            raise VerifierError(f"Gemini HTTP {r.status_code}: {error_detail(r)}")
         data = None
         try:
             data = r.json()

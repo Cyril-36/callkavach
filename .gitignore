@@ -32,3 +32,6 @@ transcripts/
 .DS_Store
 .idea/
 .vscode/
+
+# Evaluation results are served from outside the repository (see backend/spike/public_eval.py)
+frontend/app/eval/

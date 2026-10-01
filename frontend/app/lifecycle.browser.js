@@ -88,6 +88,40 @@ const tests = {
       await stopConfirmed(w);
     }
   },
+  "a microphone that stops delivering audio is reported, never left showing Listening": async () => {
+    const w = await loadApp();
+    click(w, "start");
+    await until(w, (s) => s.phase === "listening" && s.segs.length >= 1, 10000, "listening with a transcript");
+    w.__ck.rt.node.port.onmessage = null; // capture stalls, as when a phone locks its screen
+    await until(w, (s) => s.phase === "miclost", 8000, "the stall to be reported");
+    assert(!w.__ck.rt, "session runtime still held");
+    assert(w.document.querySelector(".headline").textContent.includes("Microphone stopped"), "headline");
+  },
+  "a double tap on Stop sends stop once and still gets the server's confirmation": async () => {
+    const w = await loadApp();
+    click(w, "start");
+    await until(w, (s) => s.phase === "listening" && s.segs.length >= 1, 10000, "listening with a transcript");
+    const button = w.document.querySelector('[data-act="stop"]');
+    button.click();
+    w.__ck.state.s = { ...w.__ck.state.s, phase: "listening" }; // the second tap lands before the screen updates
+    button.click();
+    await stopConfirmed(w);
+    const stops = w.__ck.state.lastLog.events.filter((e) => e.m.type === "stop_sent").length;
+    assert(stops === 1, `stop sent ${stops} times`);
+  },
+  "the Stop button is not rebuilt every tick while listening": async () => {
+    const w = await loadApp();
+    click(w, "start");
+    await until(w, (s) => s.phase === "listening" && s.segs.length >= 1, 10000, "listening with a transcript");
+    await sleep(300);
+    const button = w.document.querySelector('[data-act="stop"]');
+    let replaced = 0;
+    for (let i = 0; i < 10; i++) { await sleep(200); if (w.document.querySelector('[data-act="stop"]') !== button) replaced++; }
+    assert(replaced <= 1, `Stop button replaced in ${replaced} of 10 ticks`);
+    assert(/\d:\d\d/.test(w.document.querySelector('[data-live="clock"]').textContent), "the clock still updates");
+    click(w, "stop");
+    await stopConfirmed(w);
+  },
 };
 
 document.getElementById("run").addEventListener("click", async () => {

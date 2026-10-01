@@ -6,7 +6,8 @@
 <title>CallKavach</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;600;700&family=Atkinson+Hyperlegible+Next:wght@400;500;700;800&display=swap" rel="stylesheet">
+<!-- Non-blocking: on slow venue wifi the page renders at once in the system font. -->
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;600;700&family=Atkinson+Hyperlegible+Next:wght@400;500;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
 :root { --paper:#EFEBE2; --card:#FBF9F4; --ink:#17191E; --muted:#4A4F59; --rule:#D6D0C2; --gutter:clamp(16px,4vw,40px); }
 html,body { margin:0; padding:0; background:var(--paper); color:var(--ink); font-family:'Atkinson Hyperlegible Next',system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
@@ -16,6 +17,7 @@ button,select,input { font-family:inherit; font-size:inherit; }
 button:disabled { cursor:not-allowed; opacity:.6; }
 button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible { outline:3px solid #5B3B9E; outline-offset:2px; }
 [hidden] { display:none !important; }
+.sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 @keyframes ckPulse { 0% { transform:scale(.55); opacity:.8 } 100% { transform:scale(2.4); opacity:0 } }
 @keyframes ckSpin { to { transform:rotate(360deg) } }
 @media (prefers-reduced-motion: reduce) { * { animation:none !important; } }
@@ -61,7 +63,7 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible { 
 .evline { display:inline-flex; flex-wrap:wrap; gap:8px; align-items:center; padding:6px 10px; border-radius:8px; font-size:15px; font-weight:700; }
 .endline { padding:8px 10px; border-radius:8px; border-top:2px solid var(--ink); font-size:15px; font-weight:700; line-height:1.4; }
 .tbl { width:100%; border-collapse:collapse; font-size:16px; font-variant-numeric:tabular-nums; }
-.chip { min-height:40px; padding:0 14px; border-radius:999px; border:1.5px solid var(--ink); font-size:14px; font-weight:700; cursor:pointer; }
+.chip { min-height:44px; padding:0 14px; border-radius:999px; border:1.5px solid var(--ink); font-size:14px; font-weight:700; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -116,9 +118,11 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible { 
     </main>
     <main id="eval" hidden style="padding:20px var(--gutter) 32px;display:flex;flex-direction:column;gap:20px"></main>
 
-    <footer style="padding:18px var(--gutter) 28px;border-top:1px solid var(--rule);font-size:14px;line-height:1.5;color:#3B3F47">CallKavach listens only through this device’s microphone. It does not intercept calls, block callers, or decide with certainty that anyone is a criminal. Warning levels and evidence come from the backend; this screen does not calculate a score. Audio is sent to this server for transcription by Sarvam and checked by an AI model; this app does not save recordings or transcripts.</footer>
+    <footer style="padding:18px var(--gutter) 28px;border-top:1px solid var(--rule);font-size:14px;line-height:1.5;color:#3B3F47">CallKavach listens only through this device’s microphone. It does not intercept calls, block callers, or decide with certainty that anyone is a criminal. Warning levels and evidence come from the backend; this screen does not calculate a score. While listening, audio goes to this server and on to Sarvam for transcription, and the transcribed text (long numbers masked) goes through the AICredits gateway to Google’s Gemini model for analysis; those providers’ own retention terms apply. This app does not save recordings or transcripts. Prototype: use synthetic or consented audio only.</footer>
   </div>
 </div>
+<div id="statusRegion" class="sr-only" role="status" aria-live="polite"></div>
+<div id="alertRegion" class="sr-only" role="alert"></div>
 <script type="module" src="./app.js"></script>
 </body>
 </html>
