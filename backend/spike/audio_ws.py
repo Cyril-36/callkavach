@@ -416,5 +416,12 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
     await ws.close(code=1000)
 
 
-# Serve the browser capture spike from the same origin so the page can reach /ws/audio.
-app.mount("/", StaticFiles(directory=Path(__file__).resolve().parents[2] / "frontend" / "spike", html=True))
+# Serve the pages from the same origin so they can reach /ws/audio: the listener app at /, the capture
+# spike and its lifecycle tests at /spike/. Synthetic sample WAVs (make_samples.sh, not in Git) and the
+# offline warning clips are mounted only when present on this machine.
+_ROOT = Path(__file__).resolve().parents[2]
+for _path, _dir in (("/samples", _ROOT / "backend" / "spike" / "samples"), ("/assets", _ROOT / "assets")):
+    if _dir.is_dir():
+        app.mount(_path, StaticFiles(directory=_dir))
+app.mount("/spike", StaticFiles(directory=_ROOT / "frontend" / "spike", html=True))
+app.mount("/", StaticFiles(directory=_ROOT / "frontend" / "app", html=True))
