@@ -940,3 +940,15 @@ def test_stop_cut_off_reports_both_an_in_flight_call_and_queued_segments(client,
     assert a["in_flight_segments"] == 1 and a["queued_segments"] == 1 and a["unanalysed_segments"] == 2
     assert "covering 1 segment(s)" in a["error"] and "was cancelled" in a["error"]
     assert "1 segment(s) were still queued" in a["error"]
+
+
+def test_pages_are_served_from_the_relay_origin():
+    """The listener app is at /, the capture spike and its lifecycle tests at /spike/."""
+    client = TestClient(audio_ws.app)
+    home = client.get("/")
+    assert home.status_code == 200 and './app.js' in home.text and "CallKavach" in home.text
+    for path in ("/app.js", "/session-core.js", "/spike/resample.js", "/spike/pcm-sender.js", "/spike/pcm-worklet.js"):
+        assert client.get(path).status_code == 200, path
+    spike = client.get("/spike/")
+    assert spike.status_code == 200 and "capture.js" in spike.text
+    assert client.get("/spike/lifecycle.test.html").status_code == 200
