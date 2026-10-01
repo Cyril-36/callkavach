@@ -40,6 +40,26 @@ TACTICS = (
     "money_transfer_request",  # asks to pay, transfer, move savings, send via UPI or to an account
     "personal_id_request",  # asks for Aadhaar, PAN or other identity numbers
 )
+# What each tactic means, given to the model word for word (the names alone left the scope to guesswork).
+TACTIC_DEFINITIONS = {
+    "claimed_authority": "the caller claims to be, or to act for, police, CBI, ED, customs, a court, RBI, TRAI, "
+                         "a bank, a courier, a telecom, electricity or gas company, or another official body",
+    "threat_or_fabricated_crime": "a threat or accusation: arrest, a case or FIR, a seized parcel, a blocked or "
+                                  "frozen account or SIM, disconnection, a fine, harm to a relative",
+    "secrecy_or_isolation": "tells the listener to keep it secret, not to tell family or the bank, to stay on the "
+                            "call, to stay alone, or not to hang up",
+    "urgency_pressure": "pressure to act right now: today, within minutes, before a deadline, or else",
+    "credential_request": "asks the listener to reveal, read out, type or enter an OTP, PIN, UPI PIN, password, "
+                          "CVV or card or bank details, including entering a PIN or approving a UPI collect "
+                          "request or QR code 'to receive money' or 'for a refund'",
+    "remote_access_request": "asks the listener to install a screen-sharing or remote-control app or an APK file, "
+                             "share the screen, or give control of the phone or computer (AnyDesk, TeamViewer, "
+                             "QuickSupport and similar)",
+    "money_transfer_request": "asks the listener to pay, transfer, deposit or move money, including fees, fines, "
+                              "deposits, 'verification' or 'safe' accounts, gift cards or crypto",
+    "personal_id_request": "asks for Aadhaar, PAN, passport or other identity numbers or photos of documents",
+}
+assert set(TACTIC_DEFINITIONS) == set(TACTICS)
 _PRESSURE = {"claimed_authority", "threat_or_fabricated_crime", "secrecy_or_isolation", "urgency_pressure",
              "money_transfer_request", "personal_id_request"}
 _COERCION = {"claimed_authority", "threat_or_fabricated_crime", "secrecy_or_isolation"}
