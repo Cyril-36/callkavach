@@ -53,6 +53,7 @@ class RunPilotMetadataTests(unittest.TestCase):
         self.assertFalse(api_usage([{"detector_summary": {"calls": 1},
                                      "risk_events": [calls[0]["risk_events"][0]]}])
                          ["reported_cost_is_partial"])
+
     def test_report_path_is_outside_repo_before_provider_setup(self):
         root = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory() as tmp:
@@ -65,4 +66,5 @@ class RunPilotMetadataTests(unittest.TestCase):
             with patch("backend.evaluation.run_pilot.live_components", side_effect=AssertionError("paid setup reached")):
                 with self.assertRaisesRegex(ValueError, "inside the repository"):
                     asyncio.run(run(root / "report.json", 30))
-
+                with self.assertRaisesRegex(ValueError, "parent directory does not exist"):
+                    asyncio.run(run(Path(tmp) / "missing" / "report.json", 30))

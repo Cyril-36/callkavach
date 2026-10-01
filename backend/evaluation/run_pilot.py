@@ -106,8 +106,11 @@ def live_components():
 
 
 async def run(output: Path, finalize_timeout_s: float):
+    output = output.expanduser().resolve()
     if why := report_path_error(output):
         raise ValueError(why)  # before opening a verifier or making a paid call
+    if not output.parent.is_dir():
+        raise ValueError(f"report parent directory does not exist: {output.parent}")
     transcripts, truth = load_pilot()
     detector, verifier, prompt_version = live_components()
     started_at = datetime.now(timezone.utc).isoformat()
