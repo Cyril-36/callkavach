@@ -1,8 +1,8 @@
 # Offline QA and submission evidence — 1 October 2026
 
-Scope: Harshit's non-API handoff on `harshit/non-api-handoff`, based on `main` commit `e04bba5a1b8fc33556535d99e0155fd57b7fbbf9`. No live provider call, real call audio, deployed test, or held-out evaluation result was used here. Commands below were run from the repository root on Windows with Python and Node already installed.
+Scope: Harshit's non-API handoff, initially on `harshit/non-api-handoff` from `main` commit `e04bba5a1b8fc33556535d99e0155fd57b7fbbf9`. The later dated sections record additional offline and read-only deployed checks. No live provider call, real call audio or held-out evaluation result was used. Commands below were run from the repository root on Windows with Python and Node already installed.
 
-This file preserves earlier results as run history. The latest offline check on merged `main` is recorded at the end; its passing browser lifecycle result supersedes the earlier synthetic-browser timeout. The deployed phone checks remain pending.
+This file preserves earlier results as run history. The later offline browser lifecycle pass supersedes the earlier synthetic-browser timeout. Harshit reported a successful normal phone flow after redeployment; the specific failure, recovery, language-playback and help-link checks remain pending.
 
 ## Offline checks actually run
 
@@ -21,9 +21,9 @@ This file preserves earlier results as run history. The latest offline check on 
 
 | Item | Status / evidence needed |
 | --- | --- |
-| Public deployed URL and integrated commit | Pending Cyril's URL and integration. No deployed URL has been supplied. |
-| Second-device phone test | Pending deployed URL. Record phone model/OS, browser/version, date, and whether the test speech was synthetic or consented. |
-| Permission denial, disconnect, Stop → Start, warning playback, help link | Pending phone test. Record each observed outcome, including failures and any Stop cut-off as pending analysis. |
+| Public deployed URL and integrated commit | Cyril supplied `https://callkavach.onrender.com/`; the read-only redeployment check below matched the served frontend files to `main` at `52ab9ba`. Backend runtime configuration was not independently verified. |
+| Second-device phone test | Harshit reported that the normal flow worked on a Realme 11 Pro, Android 15, Chrome, on 1 October. Chrome version, exact steps and whether test speech was synthetic or consented were not supplied. |
+| Permission denial, disconnect, Stop → Start, warning playback, help link | Still pending. Harshit clarified that his positive normal-flow report did not cover the deliberate failure/recovery steps, all three warning languages or both help links. Record each outcome separately, including failures and any Stop cut-off as pending analysis. |
 | Hindi and Telugu warning wording and clip pronunciation | Approved by Harshit-ambati as a fluent Hindi/Telugu speaker on 1 October 2026; see `docs/warning-copy.md`. Device playback remains pending. |
 | Ten pilot calls' language and label acceptance | Harshit-ambati confirmed reading all ten complete calls and accepted every call's language, scam/genuine label and first-dangerous-ask annotation without corrections on 1 October 2026; see `docs/pilot-language-review.md`. |
 | Measured latency, recall, false alarm, costs and provider failures | Pending Cyril's measured export. Text replay and mock QA cannot substantiate a live audio timing or accuracy claim. |
@@ -72,23 +72,57 @@ Checked on 1 October 2026 after Cyril merged PR #20. The server used `STT_PROVID
 
 PR #20's merged public-host configuration was checked only through offline tests. Its deployment, real-provider behavior and phone experience are not verified by these results.
 
-## Deployed phone QA record — pending Cyril's URL
+## Deployed phone QA record — phone run pending
 
 Fill this record only from an observed run. Use synthetic or explicitly consented speech. Keep recordings, ordinary transcripts, keys, access codes and live-result reports out of Git; record a private evidence location instead of copying them here.
 
 | Run field | Observed value |
 | --- | --- |
-| Public HTTPS URL and deployed commit | Pending — no URL supplied to Harshit at this check |
-| Date/time (IST), phone model, OS and browser/version | Pending |
-| Input source and consent/synthetic status | Pending |
-| Access-code configuration and session-cap behavior | Pending; do not record the code itself |
+| Public HTTPS URL and deployed commit | [https://callkavach.onrender.com/](https://callkavach.onrender.com/) supplied by Harshit and reachable over HTTPS on 1 October 2026. The deployed commit was not independently identified; `f356999` in the evaluation report identifies the replay run's source commit, not necessarily the deployed app commit. |
+| Date/time (IST), phone model, OS and browser/version | 1 October 2026; Realme 11 Pro, Android 15, Chrome, reported by Harshit. Time and Chrome version pending. |
+| Input source and consent/synthetic status | Pending; no listening outcome was reported for the phone attempt. |
+| Access-code configuration and session-cap behavior | Before the later redeployment, Harshit reported that Chrome said this server needed an access code and directed him to Settings. The redeployed public page no longer shows an access-code field. A fresh Android listening session and the deployed hourly cap have not been verified. |
 
 | Phone check | Observed result | Private evidence reference |
 | --- | --- | --- |
-| Page loads over HTTPS; permission allowed; second-device listening starts | Pending | Pending |
+| Page loads over HTTPS; permission allowed; second-device listening starts | Harshit reached the access-code requirement on the earlier deployment. The redeployed page has not been retested on his phone; microphone permission and second-device listening remain pending. | Harshit's 1 October report; no recording or transcript |
 | Microphone permission denied; page clearly says it is not listening | Pending | Pending |
 | Microphone or network disconnect; warning status does not imply a safe call | Pending | Pending |
 | Stop → Start creates a fresh session; note whether Stop was confirmed or analysis cut off | Pending | Pending |
 | Amber and red warning playback in Hindi, Telugu and English; on-screen fallback if sound fails | Pending | Pending |
 | `tel:1930` and `cybercrime.gov.in` help links open the intended destination without automatic reporting | Pending | Pending |
 | Final README, demo, evaluation counts/failures, public links and submission receipt match observed evidence | Pending | Pending |
+
+### Deployed read-only checks on 1 October 2026
+
+These checks used the public site in the Codex in-app browser and HTTP GET/HEAD requests. No microphone session, sample analysis, provider call, phone test, external help action or recording was made.
+
+| Check | Observed result |
+| --- | --- |
+| Public page | `GET https://callkavach.onrender.com/` returned 200 over HTTPS. The live listener page showed **Not listening yet** and the status panel showed microphone off, server not connected, STT and analysis not running. |
+| Evaluation tab | Opened `#eval` in the browser. It rendered the sanitised `callkavach.public_eval.v1` report for ten synthetic development calls with a clear text-replay timing caveat and two detector failures. `GET /eval/report.json` returned 200; `GET /eval/raw.json` returned 404. This is a published export, not evidence of phone audio latency. |
+| Development-result cross-check | Joined the public report's ten call IDs to `multilingual_pilot_ground_truth.json`: five of five scams had a red alert; zero of five genuine calls had a warning; five of five first warnings preceded the scripted first dangerous ask by 6,776–22,509 ms. The export reports two timeout failures on genuine calls, 75 detector requests and 13.92385154259156 provider-reported cost units, marked partial. The private raw run and owner QA record were not inspected. |
+| Warning assets | HEAD requests for `amber-hi.wav`, `red-hi.wav`, `amber-te.wav`, `red-te.wav`, `amber-en.wav` and `red-en.wav` under `/assets/warnings/` each returned 200 with `audio/x-wav`. This checks availability, not phone playback or pronunciation. |
+| Desktop sound control | Clicked **Test warning sound** with Hindi selected while not listening. The UI changed to **Playing the Hindi test clip…**, then asked whether it was heard clearly. No audible judgment was recorded. |
+| Help actions | The browser exposed a `tel:1930` helpline link and a `cybercrime.gov.in` report link. Neither link was activated; destination behavior on a phone remains pending. |
+
+The separate phone checklist above remains pending until Harshit reports observations from a real second-device run with synthetic or explicitly consented speech. Do not infer permission, disconnect, Stop → Start or warning-playback behavior from these read-only checks.
+
+The earlier deployment's **Settings** panel had an access-code field, matching Harshit's phone report. That guidance was superseded by the redeployment described below. The earlier access-code gate does not establish that the microphone, provider pipeline or warning playback works.
+
+### Read-only redeployment check after PR #26
+
+Checked on 1 October 2026. `main` at `52ab9ba` contains [PR #26](https://github.com/Cyril-36/callkavach/pull/26), which removes the access-code field from the public demo and requires an hourly session cap when no code is configured. The deployed `index.html`, `app.js` and `session-core.js` matched that `main` snapshot after line-ending normalisation. This comparison does not identify the deployed backend configuration.
+
+| Check | Observed result |
+| --- | --- |
+| Public listener and Settings | HTTPS page returned 200, showed **Not listening yet**, and Settings had no access-code field. No Start action was taken, so a real WebSocket/provider session and the runtime cap were not verified. |
+| Narrow browser panel | In an approximately 855-pixel Codex side panel, the header and mode tabs wrapped, the main cards stacked, and Start, help actions and evaluation remained visible by scrolling. This is a narrow desktop layout, not a 390-pixel mobile emulation or an Android device test. |
+| Modes | Sample mode listed eleven synthetic examples and remained idle; replay mode showed **Nothing is running** with no log loaded; the evaluation tab rendered the ten-call report and its two failure warnings. No sample was analysed or replay file loaded. |
+| Static assets and warning tests | HEAD returned 200 for all eleven deployed synthetic WAV samples and all six amber/red warning WAVs. In the browser, Hindi, Telugu and English **Test warning sound** each reached **Playing…** and then **Did you hear it clearly?**; actual audibility and pronunciation were not judged. The optional `test-*.wav` and `test-*.mp3` paths returned 404; the app's test control falls back to the available amber clips, though Settings still lists `test` in its path pattern. |
+| Public report | `/eval/report.json` still returned ten calls, 5/5 scam red alerts, 0/5 genuine red or amber warnings, 5/5 first warnings before the scripted ask, and two detector failures. This remains synthetic text replay evidence, not phone-audio latency. |
+| Offline access checks | `python -m pytest -q backend/spike/test_audio_ws.py -k 'public_host or hourly_cap or access_code' -p pytest_asyncio -p no:cacheprovider --disable-warnings --tb=short` with the temporary test dependency path: 30 passed, 107 deselected. `node --test frontend/app/session-core.test.js`: 21 passed. These check code paths, not the deployed provider. |
+
+The browser did not provide a true phone viewport, and the earlier Realme Chrome access-code attempt predates the redeployment. On 1 October, Harshit reported that the redeployed site’s **normal flow worked** on his Realme 11 Pro, Android 15, in Chrome. He clarified that he did **not** deliberately test permission denial, disconnect/reconnect, Stop → Start, all three warning languages, or both help links. The report did not specify the Chrome version, test speech provenance, exact normal-flow steps, access-code prompt status, or measured warning audibility; those details remain pending. The agent made no live provider call.
+
+On 1 October, Cyril opened [PR #29](https://github.com/Cyril-36/callkavach/pull/29) to make the sound test request the shipped amber clip directly and to correct the clip paths shown in Settings and the app README. Its `a563673` head was reviewed separately and remained unmerged, so the deployed observation in the table above still describes the current site. The 34 app Node tests passed on that head (49 passed when the ten resampler and five PCM sender tests were included). This verifies offline code paths only; the revised sound test has not been observed on the deployed phone flow.
