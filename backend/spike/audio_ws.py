@@ -23,14 +23,14 @@ Local-spike security: the Host header must be localhost, 127.0.0.1 or [::1] (sto
 and a browser Origin must match that host and port exactly; anything else is refused before any Sarvam
 session is opened. Browsers always send Origin on WebSocket upgrades; non-browser clients (such as
 relay_smoke.py) send none and are allowed on a trusted Host. An Origin check is not authentication - any non-browser client can set or omit
-the header. This short-lived public demo uses an hourly session cap; sustained use needs authentication
-and stronger rate limits.
+the header. This short-lived public test has no access code or hourly cap; sustained use needs
+authentication and rate limits.
 
 Deployment (all off unless set; see DEPLOY.md):
   CALLKAVACH_PUBLIC_HOSTS           comma-separated host names served over https behind a TLS proxy; such a
                                     Host is accepted only with an Origin of exactly https://that-host
   CALLKAVACH_ACCESS_CODE            optional shared code; when set, clients must send start.access_code
-  CALLKAVACH_MAX_SESSIONS_PER_HOUR  server-wide cap on sessions that reach the paid providers
+  CALLKAVACH_MAX_SESSIONS_PER_HOUR  optional server-wide cap on paid sessions
 Configured session checks run before any provider connection, so a refused session costs nothing.
 """
 import asyncio
@@ -109,8 +109,8 @@ class ConfigError(RuntimeError):
 def deployment_config(env=os.environ) -> tuple:
     """(public hosts, access code or None, sessions-per-hour cap or None) from the environment.
 
-    A public host requires a positive hourly cap. An access code is optional for private demos.
-    Unset or empty variables mean "not configured".
+    Access code and hourly cap are optional for short-lived testing. Unset or empty variables
+    mean "not configured".
     """
     hosts = frozenset(h.strip().lower() for h in env.get("CALLKAVACH_PUBLIC_HOSTS", "").split(",") if h.strip())
     code = env.get("CALLKAVACH_ACCESS_CODE") or None
@@ -122,9 +122,6 @@ def deployment_config(env=os.environ) -> tuple:
         if not raw.isascii() or not raw.isdigit() or int(raw) <= 0:
             raise ConfigError(f"CALLKAVACH_MAX_SESSIONS_PER_HOUR must be a positive integer, got {raw!r}.")
         cap = int(raw)
-    if hosts and cap is None:
-        raise ConfigError("CALLKAVACH_PUBLIC_HOSTS is set, so CALLKAVACH_MAX_SESSIONS_PER_HOUR must also be set; "
-                          "refusing to serve a public host without an hourly session cap.")
     return hosts, code, cap
 
 
@@ -150,8 +147,7 @@ def _trusted_request(ws: WebSocket) -> bool:
     """Host must be a trusted local host; a browser Origin must be exactly that host and port.
     A configured public host (behind a TLS proxy, so the relay sees no port or scheme) is accepted only
     from a browser whose Origin is exactly https://that-host, with no Host port or port 443; a request
-    without an Origin is refused, and so is every public-host request unless an hourly cap is
-    configured (a second guard behind deployment_config).
+    without an Origin is refused. Optional session checks run after the upgrade.
 
     The Host allowlist stops DNS rebinding (an attacker's domain resolving to 127.0.0.1 would send a
     matching Host and Origin of that domain). Clients without an Origin (non-browser, e.g.
@@ -161,7 +157,7 @@ def _trusted_request(ws: WebSocket) -> bool:
     origin = ws.headers.get("origin")
     if host is not None and host[0] in PUBLIC_HOSTS and host[0] not in TRUSTED_HOSTS:
         explicit_port = urlsplit(f"//{ws.headers.get('host', '')}").port  # parsed above, so this cannot raise
-        return (MAX_SESSIONS_PER_HOUR is not None and explicit_port in (None, 443)
+        return (explicit_port in (None, 443)
                 and origin is not None and origin.lower() in (f"https://{host[0]}", f"https://{host[0]}:443"))
     if host is None or host[0] not in TRUSTED_HOSTS:
         return False
