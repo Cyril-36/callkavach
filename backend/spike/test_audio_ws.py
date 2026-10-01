@@ -96,14 +96,23 @@ class RecordingVerifier:
 
     instances = []
 
-    def __init__(self, respond=None):
+    def __init__(self, respond=None, delay=0.0):
         self.respond = respond or (lambda request: [])
+        self.delay = delay
         self.requests = []
         self.closed = False
+        self.completed = self.cancelled = 0
         RecordingVerifier.instances.append(self)
 
     async def analyse(self, request):
         self.requests.append(request)
+        if self.delay:
+            try:
+                await asyncio.sleep(self.delay)
+            except asyncio.CancelledError:
+                self.cancelled += 1
+                raise
+        self.completed += 1
         result = self.respond(request)
         if isinstance(result, Exception):
             raise result
@@ -113,8 +122,8 @@ class RecordingVerifier:
         self.closed = True
 
 
-def use_verifier(monkeypatch, respond=None):
-    monkeypatch.setattr(audio_ws, "verifier_factory", lambda: (RecordingVerifier(respond), None))
+def use_verifier(monkeypatch, respond=None, delay=0.0):
+    monkeypatch.setattr(audio_ws, "verifier_factory", lambda: (RecordingVerifier(respond, delay), None))
 
 
 @pytest.fixture(autouse=True)
@@ -768,3 +777,166 @@ def test_relay_risk_timestamps_use_the_session_clock_at_send(client, monkeypatch
     assert risk["emitted_at_ms"] >= risk["analysed_through_ms"] >= 0
     assert risk["first_red_at_ms"] == risk["emitted_at_ms"]
     assert stopped["analysis"]["first_red_at_ms"] == risk["first_red_at_ms"], "summary uses the same emission clock"
+
+
+# --- reliability: slow analysis, malformed output, disconnects, late results, Stop, session reset ---
+
+def red_for_new(request):
+    return [{"tactic": "credential_request", "status": "present", "segment_id": s["segment_id"], "quote": "OTP"}
+            for s in request["segments"] if s["new"]]
+
+
+def test_analysis_slower_than_the_stop_deadline_is_reported_as_cut_off(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.6)
+    use_verifier(monkeypatch, red_for_new, delay=5)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("tell me the OTP")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        t0 = time.monotonic()
+        stopped, events = stop_and_collect(ws)
+        elapsed = time.monotonic() - t0
+    a = stopped["analysis"]
+    assert elapsed < 2.0, "Stop must not wait for the slow call beyond its deadline"
+    assert stopped["transcription"] == "complete", "transcription completeness is independent of analysis"
+    assert a["status"] == "pending" and a["cut_off_by_stop_deadline"] is True
+    assert a["unanalysed_segments"] == 1 and a["in_flight_segments"] == 1 and a["queued_segments"] == 0
+    assert a["in_flight_for_s"] >= 0.4 and "Stop deadline" in a["error"]
+    assert "was cancelled, so its result is discarded" in a["error"] and "queued" not in a["error"]
+    assert a["level"] == "none" and a["first_red_at_ms"] is None
+    assert not [e for e in events if e["type"] == "risk"], "no result may be invented for the cut-off segment"
+    wait_for_no_sessions()
+    v = RecordingVerifier.instances[0]
+    wait_until(lambda: v.cancelled == 1 and v.closed, "in-flight call not cancelled or verifier not closed")
+    assert v.completed == 0, "the late result must never complete after the session ended"
+
+
+def test_stop_during_analysis_that_finishes_in_time_reports_the_result(client, monkeypatch):
+    use_verifier(monkeypatch, red_for_new, delay=0.3)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("tell me the OTP")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        stopped, events = stop_and_collect(ws)
+    risk = [e for e in events if e["type"] == "risk"]
+    assert risk and risk[-1]["level"] == "red"
+    assert events.index(risk[-1]) < events.index(stopped), "risk is delivered before stopped"
+    a = stopped["analysis"]
+    assert a["status"] == "complete" and a["cut_off_by_stop_deadline"] is False and a["in_flight_for_s"] is None
+    assert a["first_red_at_ms"] == risk[-1]["emitted_at_ms"]
+
+
+def test_malformed_findings_through_the_relay_fail_the_analysis_visibly(client, monkeypatch):
+    def respond(request):
+        return [{"tactic": "credential_request", "status": "present", "segment_id": "seg1", "quote": "not said"}]
+    use_verifier(monkeypatch, respond)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("tell me the OTP")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        stopped, events = stop_and_collect(ws)
+    risk = [e for e in events if e["type"] == "risk"][-1]
+    assert risk["analysis"] == "unavailable" and risk["rejected_findings"] == 1 and risk["level"] == "none"
+    assert stopped["analysis"]["status"] == "incomplete" and stopped["analysis"]["unanalysed_segments"] == 1
+
+
+def test_disconnect_during_analysis_cancels_the_call_and_releases_everything(client, monkeypatch):
+    use_verifier(monkeypatch, red_for_new, delay=5)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("tell me the OTP")
+        ws.send_bytes(b"\x00\x00" * 1600)
+        receive_until(ws, "transcript")
+        wait_until(lambda: RecordingVerifier.instances[0].requests, "analysis never started")
+    wait_for_no_sessions()
+    v = RecordingVerifier.instances[0]
+    wait_until(lambda: v.cancelled == 1 and v.closed, "call not cancelled / verifier not closed after disconnect")
+    wait_until(lambda: FakeProvider.instances[0].closed, "provider not closed after disconnect")
+    assert v.completed == 0
+
+
+def test_late_verifier_result_after_stopped_is_never_sent_or_applied(client, monkeypatch):
+    """The call would finish shortly after the deadline; it is cancelled with the session, not delivered late."""
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.4)
+    use_verifier(monkeypatch, red_for_new, delay=0.9)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("tell me the OTP")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        stopped, _ = stop_and_collect(ws)
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()  # nothing after stopped; the server closed normally
+    assert stopped["analysis"]["cut_off_by_stop_deadline"] is True
+    time.sleep(1.0)  # past the moment the call would have finished
+    v = RecordingVerifier.instances[0]
+    assert v.completed == 0 and v.cancelled == 1
+
+
+def test_stop_then_start_gives_a_fresh_detector(client, monkeypatch):
+    use_verifier(monkeypatch, red_for_new)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("tell me the OTP")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        first, _ = stop_and_collect(ws)
+    assert first["analysis"]["level"] == "red"
+    use_verifier(monkeypatch)  # the second call says nothing dangerous
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[1].on_audio = speak_lines("hello, how are you")
+        FakeProvider.instances[1].on_flush = lambda p: None
+        second, events = stop_and_collect(ws)
+    risk = [e for e in events if e["type"] == "risk"]
+    assert risk and all(e["level"] == "none" and e["tactics"] == [] for e in risk), "state leaked across sessions"
+    a = second["analysis"]
+    assert a["level"] == "none" and a["calls"] == 1 and a["first_red_at_ms"] is None and a["tactics"] == []
+    assert len(RecordingVerifier.instances) == 2 and RecordingVerifier.instances[0].closed
+    assert [s["segment_id"] for s in RecordingVerifier.instances[1].requests[0]["segments"]] == ["seg1"]
+
+
+def test_slow_analysis_mid_call_times_out_visibly_with_the_production_timeout_setting(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "DETECTOR_CALL_TIMEOUT_S", 0.2)
+    use_verifier(monkeypatch, red_for_new, delay=1)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("tell me the OTP")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        stopped, events = stop_and_collect(ws)
+    risk = [e for e in events if e["type"] == "risk"][-1]
+    assert risk["analysis"] == "unavailable" and "timed out after 0.2 s" in risk["error"]
+    assert stopped["analysis"]["status"] == "incomplete"
+
+
+def test_stop_cut_off_of_queued_analysis_is_not_reported_as_an_in_flight_call(client, monkeypatch):
+    """The second segment waits for the 1 s minimum interval between calls; no call is in flight at the deadline."""
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.5)
+    use_verifier(monkeypatch)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("hello sir", "your account is blocked")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        wait = lambda: RecordingVerifier.instances[0].completed == 1
+        ws.send_bytes(b"\x00\x00" * 1600)
+        wait_until(wait, "first analysis did not complete")
+        ws.send_bytes(b"\x00\x00" * 1600)  # second segment arrives inside the minimum interval
+        stopped, _ = stop_and_collect(ws, frames=0)
+    a = stopped["analysis"]
+    assert a["cut_off_by_stop_deadline"] is True and a["status"] == "pending"
+    assert a["in_flight_segments"] == 0 and a["in_flight_for_s"] is None and a["queued_segments"] == 1
+    assert "1 segment(s) were still queued and were never sent for analysis" in a["error"]
+    assert "cancelled" not in a["error"] and "running" not in a["error"]
+    assert len(RecordingVerifier.instances[0].requests) == 1, "the queued segment never reached the model"
+
+
+def test_stop_cut_off_reports_both_an_in_flight_call_and_queued_segments(client, monkeypatch):
+    monkeypatch.setattr(audio_ws, "FINALIZE_DEADLINE_S", 0.6)
+    use_verifier(monkeypatch, delay=5)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws)
+        FakeProvider.instances[0].on_audio = speak_lines("hello sir", "your account is blocked")
+        FakeProvider.instances[0].on_flush = lambda p: None
+        stopped, _ = stop_and_collect(ws, frames=2)
+    a = stopped["analysis"]
+    assert a["in_flight_segments"] == 1 and a["queued_segments"] == 1 and a["unanalysed_segments"] == 2
+    assert "covering 1 segment(s)" in a["error"] and "was cancelled" in a["error"]
+    assert "1 segment(s) were still queued" in a["error"]

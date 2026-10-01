@@ -16,3 +16,6 @@ make() {  # name voice text
 make te_en_digital_arrest Geeta "నేను Mumbai Cyber Crime నుండి Inspector Sharma మాట్లాడుతున్నాను. మీ పేరు మీద ఒక parcel లో drugs మరియు fake passports దొరికాయి. ఎవరికీ చెప్పకండి, call లోనే ఉండండి."
 # Hindi-English: KYC / bank pattern, synthetic.
 make hi_en_kyc Lekha "मैं State Bank के KYC department से बोल रहा हूँ। आपका account आज block हो जाएगा। अभी जो OTP आया है वो बताइए।"
+# Hindi-English genuine look-alikes, synthetic: a negated OTP warning, and a delivery code at the door.
+make hi_en_bank_genuine Lekha "नमस्ते, मैं आपके बैंक की card services से बोल रही हूँ। आपका एक transaction decline हुआ था, कृपया bank app में check कर लीजिए। और याद रखिए, बैंक कभी भी call पर OTP या PIN नहीं माँगता, किसी को भी मत बताइए।"
+make hi_en_delivery_genuine Lekha "नमस्ते sir, Flipkart delivery है, मैं आपकी building के gate पर हूँ। आपके app में order के नीचे delivery code दिख रहा होगा। Parcel लेते वक्त वो code बता देना, payment कुछ नहीं है।"

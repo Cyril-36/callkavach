@@ -51,6 +51,7 @@ FINALIZE_SETTLE_S = 1.0  # after the flush, the provider must be quiet this long
 PROVIDER_CLOSE_TIMEOUT_S = 1.0  # bounded provider shutdown: 6 s + 1 s stays inside the browser's 8 s
 connect_provider = default_connector()
 verifier_factory = make_verifier  # returns (verifier, None) or (None, reason); replaced in tests
+DETECTOR_CALL_TIMEOUT_S = 8.0  # production per-call analysis timeout (owner decision); see e2e_harness.py
 
 app = FastAPI()
 active_sessions = 0
@@ -308,7 +309,8 @@ async def _session(ws: WebSocket) -> None:
     relay = _Relay(ws, provider)
     verifier, relay.detector_unavailable = verifier_factory()
     if verifier:  # one session clock for segment receive times and risk emission times
-        relay.detector = SessionDetector(verifier, send=relay.send_built, clock=relay.session_ms)
+        relay.detector = SessionDetector(verifier, send=relay.send_built, clock=relay.session_ms,
+                                         call_timeout_s=DETECTOR_CALL_TIMEOUT_S)
     tasks = [asyncio.create_task(relay.guard(relay.pump())), asyncio.create_task(relay.guard(relay.read()))]
     try:
         await relay.send({"type": "ready", **EXPECTED_FORMAT, "language_code": language,
@@ -367,6 +369,23 @@ async def _receive_audio(ws: WebSocket, relay: _Relay) -> None:
         await relay.send({"type": "ack", "frames": frames, "samples": samples, "duration_s": samples / SAMPLE_RATE})
 
 
+def _analysis_summary(relay: _Relay) -> dict:
+    """Detector summary for `stopped`, stating what the Stop deadline cut off: a call still in flight
+    (its result is discarded) and/or segments still queued (never sent to the model)."""
+    summary = relay.detector.summary()
+    summary["cut_off_by_stop_deadline"] = summary["status"] == "pending"
+    if summary["cut_off_by_stop_deadline"]:
+        parts = []
+        if summary["in_flight_segments"] or summary["in_flight_for_s"] is not None:
+            parts.append(f"an analysis call covering {summary['in_flight_segments']} segment(s) had been running for "
+                         f"{summary['in_flight_for_s']:.1f} s and was cancelled, so its result is discarded")
+        if summary["queued_segments"]:
+            parts.append(f"{summary['queued_segments']} segment(s) were still queued and were never sent for analysis")
+        cut = f"at the {FINALIZE_DEADLINE_S:g} s Stop deadline, " + " and ".join(parts)
+        summary["error"] = f"{summary['error']}; {cut}" if summary["error"] else cut
+    return summary
+
+
 async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + FINALIZE_DEADLINE_S
@@ -392,7 +411,7 @@ async def _finish(ws: WebSocket, relay: _Relay, frames: int, samples: int) -> No
                       "transcription": "incomplete" if reasons else "complete",
                       "reason": "; ".join(reasons) or None,
                       "provider_cleanup": cleanup,
-                      "analysis": relay.detector.summary() if relay.detector else
+                      "analysis": _analysis_summary(relay) if relay.detector else
                       {"status": "unavailable", "error": relay.detector_unavailable}})
     await ws.close(code=1000)
 
