@@ -2,7 +2,7 @@
 
 Scope: Harshit's non-API handoff, initially on `harshit/non-api-handoff` from `main` commit `e04bba5a1b8fc33556535d99e0155fd57b7fbbf9`. The later dated sections record additional offline and read-only deployed checks. No live provider call, real call audio or held-out evaluation result was used. Commands below were run from the repository root on Windows with Python and Node already installed.
 
-This file preserves earlier results as run history. The later offline browser lifecycle pass supersedes the earlier synthetic-browser timeout. The deployed phone checks remain pending.
+This file preserves earlier results as run history. The later offline browser lifecycle pass supersedes the earlier synthetic-browser timeout. Harshit reported a successful normal phone flow after redeployment; the specific failure, recovery, language-playback and help-link checks remain pending.
 
 ## Offline checks actually run
 
@@ -21,9 +21,9 @@ This file preserves earlier results as run history. The later offline browser li
 
 | Item | Status / evidence needed |
 | --- | --- |
-| Public deployed URL and integrated commit | Pending Cyril's URL and integration. No deployed URL has been supplied. |
-| Second-device phone test | Pending deployed URL. Record phone model/OS, browser/version, date, and whether the test speech was synthetic or consented. |
-| Permission denial, disconnect, Stop → Start, warning playback, help link | Pending phone test. Record each observed outcome, including failures and any Stop cut-off as pending analysis. |
+| Public deployed URL and integrated commit | Cyril supplied `https://callkavach.onrender.com/`; the read-only redeployment check below matched the served frontend files to `main` at `52ab9ba`. Backend runtime configuration was not independently verified. |
+| Second-device phone test | Harshit reported that the normal flow worked on a Realme 11 Pro, Android 15, Chrome, on 1 October. Chrome version, exact steps and whether test speech was synthetic or consented were not supplied. |
+| Permission denial, disconnect, Stop → Start, warning playback, help link | Still pending. Harshit clarified that his positive normal-flow report did not cover the deliberate failure/recovery steps, all three warning languages or both help links. Record each outcome separately, including failures and any Stop cut-off as pending analysis. |
 | Hindi and Telugu warning wording and clip pronunciation | Approved by Harshit-ambati as a fluent Hindi/Telugu speaker on 1 October 2026; see `docs/warning-copy.md`. Device playback remains pending. |
 | Ten pilot calls' language and label acceptance | Harshit-ambati confirmed reading all ten complete calls and accepted every call's language, scam/genuine label and first-dangerous-ask annotation without corrections on 1 October 2026; see `docs/pilot-language-review.md`. |
 | Measured latency, recall, false alarm, costs and provider failures | Pending Cyril's measured export. Text replay and mock QA cannot substantiate a live audio timing or accuracy claim. |
@@ -123,6 +123,6 @@ Checked on 1 October 2026. `main` at `52ab9ba` contains [PR #26](https://github.
 | Public report | `/eval/report.json` still returned ten calls, 5/5 scam red alerts, 0/5 genuine red or amber warnings, 5/5 first warnings before the scripted ask, and two detector failures. This remains synthetic text replay evidence, not phone-audio latency. |
 | Offline access checks | `python -m pytest -q backend/spike/test_audio_ws.py -k 'public_host or hourly_cap or access_code' -p pytest_asyncio -p no:cacheprovider --disable-warnings --tb=short` with the temporary test dependency path: 30 passed, 107 deselected. `node --test frontend/app/session-core.test.js`: 21 passed. These check code paths, not the deployed provider. |
 
-The browser did not provide a true phone viewport, and the earlier Realme Chrome attempt predates the redeployment. Permission denial, actual microphone streaming, disconnect, Stop → Start, warning audibility and help-link activation on a phone remain unverified. No live provider call was made.
+The browser did not provide a true phone viewport, and the earlier Realme Chrome access-code attempt predates the redeployment. On 1 October, Harshit reported that the redeployed site’s **normal flow worked** on his Realme 11 Pro, Android 15, in Chrome. He clarified that he did **not** deliberately test permission denial, disconnect/reconnect, Stop → Start, all three warning languages, or both help links. The report did not specify the Chrome version, test speech provenance, exact normal-flow steps, access-code prompt status, or measured warning audibility; those details remain pending. The agent made no live provider call.
 
 On 1 October, Cyril opened [PR #29](https://github.com/Cyril-36/callkavach/pull/29) to make the sound test request the shipped amber clip directly and to correct the clip paths shown in Settings and the app README. Its `a563673` head was reviewed separately and remained unmerged, so the deployed observation in the table above still describes the current site. The 34 app Node tests passed on that head (49 passed when the ten resampler and five PCM sender tests were included). This verifies offline code paths only; the revised sound test has not been observed on the deployed phone flow.
