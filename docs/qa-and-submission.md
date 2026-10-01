@@ -47,3 +47,7 @@ Reviewed the diffs against `main` at the following heads. This record is **not**
 ## Merge access observed
 
 The authenticated GitHub permission endpoint returned `write` for `Harshit-ambati`. Cyril merged [PR #16](https://github.com/Cyril-36/callkavach/pull/16) and [PR #12](https://github.com/Cyril-36/callkavach/pull/12) on 1 October 2026; GitHub identifies `Cyril-36` as `mergedBy` for both. PR #11 is still an open draft at head `f2e6cad`. Harshit did not attempt a merge.
+
+## Later owner integration on 1 October 2026
+
+The PR status above describes Harshit's check at `f2e6cad`. Cyril subsequently reviewed and merged PR #11 as `9fb7274` and PR #17 as `f2a5b0e`. The development runner's 47 offline tests and ten-call structural validator passed; no additional paid-provider run was made. The rebased listener passed 190 offline backend tests and 31 Node tests. In Cyril's Chrome mock browser check, three listener lifecycle cases passed; the automated Start → Stop → Start case timed out waiting for a synthetic transcript. This is an unresolved browser-test limitation, not a passing device result. The public deployment, two-device test, and measured provider evaluation remain pending.
