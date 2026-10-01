@@ -2,6 +2,8 @@
 
 Scope: Harshit's non-API handoff on `harshit/non-api-handoff`, based on `main` commit `e04bba5a1b8fc33556535d99e0155fd57b7fbbf9`. No live provider call, real call audio, deployed test, or held-out evaluation result was used here. Commands below were run from the repository root on Windows with Python and Node already installed.
 
+This file preserves earlier results as run history. The latest offline check on merged `main` is recorded at the end; its passing browser lifecycle result supersedes the earlier synthetic-browser timeout. The deployed phone checks remain pending.
+
 ## Offline checks actually run
 
 | Check | Command or method | Observed result |
@@ -55,3 +57,38 @@ The PR status above describes Harshit's check at `f2e6cad`. Cyril subsequently r
 ## Listener lifecycle retest
 
 The missing transcript was traced to the lifecycle page launching its synthetic microphone with a programmatic click on page load. Chrome suspended both test AudioContexts, so no PCM frames reached the mock relay. The test page now waits for a real click on **Run lifecycle tests**. With `STT_PROVIDER=mock LLM_PROVIDER=off`, all four listener lifecycle cases passed on two Chrome runs, including Start → Stop → Start with a transcript and confirmed `stopped` reply in each session. The app's capture code was unchanged, and all 31 Node tests passed. This resolves the synthetic test-harness failure; it does not replace the pending phone, two-device, or live-provider checks.
+
+## Harshit's offline QA on merged `main` (`d314bdf`)
+
+Checked on 1 October 2026 after Cyril merged PR #20. The server used `STT_PROVIDER=mock` and `LLM_PROVIDER=off`; no paid provider, real call, or held-out evaluation material was used. This is a new run, separate from the historical results above.
+
+| Check | Exact command or action | Observed result |
+| --- | --- | --- |
+| Evaluation unit tests | `python -m unittest discover -s backend/evaluation -p 'test_*.py'` | 47 passed on rerun. The first restricted run had one Windows `PermissionError` creating a test symlink in `%TEMP%`; rerunning with permission completed all 47. |
+| Ten-call development validator | `python backend/evaluation/validate_multilingual_pilot.py` | Validated ten candidate multilingual development calls. This does not replace Harshit's recorded human review. |
+| Public-host, access-code and quota tests | `$env:PYTHONPATH = Join-Path $env:TEMP 'callkavach-testdeps'; python -m pytest -q backend/spike/test_audio_ws.py -k 'public_host or access_code or hourly or deployment_config or relay_refuses' -p pytest_asyncio -p no:cacheprovider --disable-warnings --tb=short` | 35 passed, 81 deselected. The temporary dependency path is outside the repository. |
+| Listener and audio transport tests | `node --test frontend/app/session-core.test.js frontend/spike/resample.test.js frontend/spike/pcm-sender.test.js` | 32 passed. |
+| Listener browser lifecycle | Set `$env:STT_PROVIDER='mock'; $env:LLM_PROVIDER='off'`, then ran `python -m uvicorn --app-dir backend/spike audio_ws:app --host 127.0.0.1 --port 8767`; opened `/lifecycle.test.html` in the in-app browser and clicked **Run lifecycle tests**. | Page title `ALL PASSED`; 4/4 cases passed, including Start → Stop → Start with a synthetic transcript and a confirmed server Stop. The temporary server was stopped afterward. |
+
+PR #20's merged public-host configuration was checked only through offline tests. Its deployment, real-provider behavior and phone experience are not verified by these results.
+
+## Deployed phone QA record — pending Cyril's URL
+
+Fill this record only from an observed run. Use synthetic or explicitly consented speech. Keep recordings, ordinary transcripts, keys, access codes and live-result reports out of Git; record a private evidence location instead of copying them here.
+
+| Run field | Observed value |
+| --- | --- |
+| Public HTTPS URL and deployed commit | Pending — no URL supplied to Harshit at this check |
+| Date/time (IST), phone model, OS and browser/version | Pending |
+| Input source and consent/synthetic status | Pending |
+| Access-code configuration and session-cap behavior | Pending; do not record the code itself |
+
+| Phone check | Observed result | Private evidence reference |
+| --- | --- | --- |
+| Page loads over HTTPS; permission allowed; second-device listening starts | Pending | Pending |
+| Microphone permission denied; page clearly says it is not listening | Pending | Pending |
+| Microphone or network disconnect; warning status does not imply a safe call | Pending | Pending |
+| Stop → Start creates a fresh session; note whether Stop was confirmed or analysis cut off | Pending | Pending |
+| Amber and red warning playback in Hindi, Telugu and English; on-screen fallback if sound fails | Pending | Pending |
+| `tel:1930` and `cybercrime.gov.in` help links open the intended destination without automatic reporting | Pending | Pending |
+| Final README, demo, evaluation counts/failures, public links and submission receipt match observed evidence | Pending | Pending |
