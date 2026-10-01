@@ -31,6 +31,17 @@ export const TACTICS = {
   money_transfer_request: "Asks you to pay or transfer money",
   personal_id_request: "Asks for Aadhaar, PAN or other ID numbers",
 };
+// Spoken warning text, verbatim from docs/warning-copy.md (reviewed Hindi and Telugu wording, English
+// fallback). Generic by design: the evidence quotes supply the specific reason. Keyed "{level}-{lang}".
+export const WARNING_COPY = {
+  "amber-hi": "इस कॉल में कुछ चिंताजनक संकेत मिले हैं। पैसे या जानकारी देने से पहले, कॉल रोकें। आधिकारिक नंबर पर कॉल करके जाँच करें।",
+  "red-hi": "इस कॉल में गंभीर जोखिम के संकेत मिले हैं। अभी पैसे या बैंक की जानकारी साझा न करें। कॉल काटें। किसी भरोसेमंद व्यक्ति से मदद लें।",
+  "amber-te": "ఈ కాల్\u200cలో కొన్ని ఆందోళనకరమైన సూచనలు కనిపించాయి. డబ్బు లేదా సమాచారం ఇచ్చే ముందు, కాల్ ఆపండి. అధికారిక నంబర్\u200cకు ఫోన్ చేసి నిర్ధారించుకోండి.",
+  "red-te": "ఈ కాల్\u200cలో తీవ్రమైన ప్రమాద సూచనలు కనిపించాయి. ఇప్పుడు డబ్బు లేదా బ్యాంకు వివరాలు పంచుకోవద్దు. కాల్ ముగించండి. నమ్మకమైన వ్యక్తి సహాయం తీసుకోండి.",
+  "amber-en": "This call has shown some warning signs. Pause before sending money or sharing information. Verify by calling an official number.",
+  "red-en": "This call has shown serious warning signs. Do not send money or share banking details. End the call. Ask someone you trust for help.",
+};
+
 export const tacticLabel = (t) => TACTICS[t] || `Unrecognised tactic “${t}”`;
 
 const LEVELS = ["none", "amber", "red"];

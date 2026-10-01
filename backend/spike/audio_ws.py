@@ -303,9 +303,11 @@ class _Relay:
                     continue  # utterance was not speech; counted, not shown
                 self.seen.add(event["segment_id"])
                 self.segments += 1
-                await self.send(event)
+                # Hand the segment to the detector before the (possibly slow) send to the browser, so a Stop
+                # that settles while this send waits can never report analysis complete without it.
                 if self.detector:  # finalized segments only, in arrival order; no speaker or other metadata
                     self.detector.add(Segment.from_event(event, self.session_ms()))
+                await self.send(event)
                 continue
             await self.send(event)
         if not self.closing:

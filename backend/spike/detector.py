@@ -25,6 +25,7 @@ Design
 """
 import asyncio
 import re
+import unicodedata
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -57,7 +58,18 @@ def redact(text: str) -> str:
     return _NUMBER.sub("[NUMBER]", text)
 
 
+_INVISIBLE = dict.fromkeys(map(ord, "\u00ad\u200b\u200c\u200d\u2060\ufeff"))  # soft hyphen, zero-width chars
+
+
 def _norm(text: str) -> str:
+    """Comparison form for quote checks, applied identically to the quote and its segment.
+
+    Unicode NFKC (Telugu and Devanagari vowel signs can be composed or decomposed), invisible joiners
+    removed, every punctuation character (danda, curly quotes, ellipsis, brackets...) turned into a
+    space, case folded and whitespace collapsed. The words themselves must still match in order.
+    """
+    text = unicodedata.normalize("NFKC", text).translate(_INVISIBLE)
+    text = "".join(" " if unicodedata.category(c).startswith("P") else c for c in text)
     return " ".join(text.casefold().split())
 
 
@@ -262,7 +274,7 @@ class SessionDetector:
                 rejected.append(f"#{i} unknown status {status[:40]!r}")
             elif sid not in window:
                 rejected.append(f"#{i} segment {sid[:40]!r} not in this request")
-            elif not quote or len(quote) > MAX_QUOTE_CHARS:
+            elif not _norm(quote) or len(quote) > MAX_QUOTE_CHARS:
                 rejected.append(f"#{i} empty or over-long quote")
             elif _norm(quote) not in window[sid][1]:
                 rejected.append(f"#{i} quote not found in {sid[:40]}")

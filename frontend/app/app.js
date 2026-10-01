@@ -4,8 +4,9 @@ import { Resampler, toInt16 } from "../spike/resample.js";
 import { PcmSender } from "../spike/pcm-sender.js";
 import {
   LANGS, STOP_DRAIN_MAX_S, STOP_TAIL_SILENCE_S, STOP_WAIT_MS, SAMPLE_RATE, freshSession, headlineFor, langByCode,
-  needsDrain, reduce, startMessage, stopMessage, unconfirmedStop,
+  needsDrain, reduce, startMessage, stopMessage, unconfirmedStop, WARNING_COPY,
 } from "./session-core.js";
+import { readReport } from "./eval-report.js";
 
 const READY_TIMEOUT_MS = 12000; // includes the relay opening the transcription session
 const CLIP_BASE = "/assets/warnings"; // {amber|red|test}-{lang}.mp3 (or .wav)
@@ -40,7 +41,7 @@ const state = {
   playback: null, test: null, share: null, clipStatus: {}, meter: 0, silenced: false,
   sampleId: SAMPLES[0].id, sampleAloud: true,
   replay: { log: null, t: 0, playing: false, speed: 1, sound: true, error: null },
-  report: null, reportState: "idle", reportErr: "", failFilter: "all",
+  report: null, reportState: "idle", reportErr: "",
 };
 let rt = null; // runtime handles of the active session (socket, audio graph, timers)
 let out = null; // AudioContext for warning clips and the sample played aloud
@@ -107,8 +108,20 @@ async function releaseMic(r) {
   return ok;
 }
 
+// Keeps a phone's screen on while listening, so the warning is visible when it arrives. Best effort:
+// unsupported browsers and a refused request simply leave the screen's normal timeout in place.
+let wakeLock = null;
+async function holdScreen(on) {
+  try {
+    if (on && !wakeLock && navigator.wakeLock) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); }
+    else if (!on && wakeLock) { const w = wakeLock; wakeLock = null; await w.release(); }
+  } catch { wakeLock = null; }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && rt && isActive(state.s)) holdScreen(true); });
+
 function teardown() {
   const r = rt; rt = null;
+  holdScreen(false);
   stopClip();
   if (!r) return;
   [r.readyTimer, r.stopTimer].forEach(clearTimeout);
@@ -139,6 +152,7 @@ function sendPcm(r, pcm16) {
 
 async function startLive() {
   teardown();
+  holdScreen(true);
   state.playback = state.test = state.share = null; state.silenced = false;
   const r = rt = { kind: "live", audioT: 0, log: [], startedAt: new Date().toISOString(), lang: state.lang };
   setS({ ...freshSession("live"), phase: "permission", mic: "asking" });
@@ -357,9 +371,7 @@ async function loadReport() {
   try {
     const r = await fetch(REPORT_URL, { cache: "no-store" });
     if (!r.ok) throw new Error(r.status === 404 ? "no report has been exported to this server yet" : `HTTP ${r.status}`);
-    const j = await r.json();
-    if (!j || !j.samples || !j.overall) throw new Error("not a CallKavach report (missing samples/overall)");
-    state.report = j; state.reportState = "ok";
+    state.report = readReport(await r.json()); state.reportState = "ok";
   } catch (e) { state.reportState = "error"; state.reportErr = String(e.message || e); }
   render();
 }
@@ -421,7 +433,6 @@ const ACTIONS = {
   restart: () => { stopClip(); Object.assign(state.replay, { t: 0, playing: !!state.replay.log }); render(); },
   speed: () => { const rp = state.replay; rp.speed = rp.speed === 1 ? 2 : rp.speed === 2 ? 4 : 1; render(); },
   retryReport: () => { state.reportState = "idle"; loadReport(); },
-  filter: (k) => { state.failFilter = k; render(); },
 };
 
 document.addEventListener("click", (e) => {
@@ -552,6 +563,10 @@ function warningView(s) {
   if (band) html += `<div style="padding:9px 12px;border-radius:8px;background:${modeColor};color:#fff;font-size:15px;font-weight:700;border:1.5px solid #fff">${esc(band)}</div>`;
   html += `<div style="display:flex;gap:16px;align-items:flex-start">${ic ? `<div style="flex:none;width:48px;height:48px;display:flex;align-items:center;justify-content:center;margin-top:2px">${icon(ic, ink)}</div>` : ""}
     <div style="min-width:0;display:flex;flex-direction:column;gap:8px"><h2 class="headline">${esc(headline)}</h2>${body ? `<p class="lede">${esc(body)}</p>` : ""}</div></div>`;
+  if (cur) { // the reviewed spoken-warning text, readable even with the sound off
+    const wl = src === "replay" && log ? log.language : state.lang;
+    html += `<div style="display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:12px;background:${c.quoteBg}"><span class="eyebrow">Warning · ${esc(langByCode(wl).name)}</span><p lang="${esc(wl)}" style="margin:0;font-size:clamp(20px,2.4vw,24px);line-height:1.45;font-weight:700">${esc(WARNING_COPY[`${s.level}-${wl}`] || "")}</p></div>`;
+  }
 
   if (s.tactics.length && (cur || s.events.length)) {
     const first = s.events[s.events.length - 1];
@@ -615,6 +630,7 @@ function warningView(s) {
     html += `<div class="row" style="gap:10px;padding-top:4px">
       <button data-act="${p[0]}" ${p[3] ? "disabled" : ""} class="btn-primary" style="background:${c.btnBg};color:${c.btnInk}"><span style="font-size:14px">${p[1]}</span>${p[2]}</button>
       <button class="btn" data-act="test" ${ph === "stopping" ? "disabled" : ""}>Test warning sound</button>
+      ${ph === "idle" ? `<span style="flex-basis:100%;font-size:14px">On an iPhone, switch off silent mode or warnings will only appear on screen.</span>` : ""}
       ${ph === "stopped" && state.lastLog ? `<button class="btn" data-act="saveLog">Save session log</button>` : ""}
       ${meter ? `<div class="row" style="gap:8px;font-size:14px;font-weight:700;margin-left:auto"><span>${s.mic === "paused" ? "Mic muted" : "Mic level"}</span><div aria-hidden="true" style="width:110px;height:10px;border-radius:5px;border:1.5px solid currentColor;overflow:hidden"><div style="height:100%;width:${s.mic === "paused" ? 0 : Math.round(state.meter * 100)}%;background:currentColor"></div></div></div>` : ""}
     </div>`;
@@ -773,33 +789,16 @@ function evalView() {
   const st = state.reportState, r = state.report;
   if (st === "loading" || st === "idle") return `<div style="padding:24px;border-radius:18px;border:1.5px dashed #17191E;font-size:18px;font-weight:700">Reading ${REPORT_URL}…</div>`;
   if (st === "error" || !r) return `<div style="padding:24px;border-radius:18px;background-color:#2A2D33;background-image:repeating-linear-gradient(135deg,rgba(255,255,255,.07) 0 12px,transparent 12px 24px);color:#fff;display:flex;flex-direction:column;gap:10px"><h2 style="margin:0;font-size:30px;font-weight:800">No evaluation results to show</h2><p style="margin:0;font-size:18px">${esc(REPORT_URL)} — ${esc(state.reportErr)}. No results are shown rather than guessing.</p><div><button class="btn" style="background:#fff;color:#17191E;border:none" data-act="retryReport">Try again</button></div></div>`;
-  const pct = (k, n) => (n ? `${Math.round((1000 * k) / n) / 10}%` : "—");
-  const wil = (k, n) => { if (!n) return ""; const z = 1.96, p = k / n, d = 1 + (z * z) / n, cc = (p + (z * z) / (2 * n)) / d, h = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / d; return `95% interval ${Math.round(Math.max(0, cc - h) * 100)}–${Math.round(Math.min(1, cc + h) * 100)}%`; };
-  const S = r.samples, A = r.overall.audio || {}, X = r.overall.text || {}, ls = r.by_language || [];
-  const ns = ls.flatMap((l) => [l.scam, l.genuine]).filter((n) => n > 0);
-  const caveats = [];
-  if (r.example_data) caveats.push(["Example data.", r.example_note || "These numbers are placeholders."]);
-  caveats.push([`${S.synthetic} of ${S.total} samples (${pct(S.synthetic, S.total)}) are synthetic.`, `Only ${S.consented} are consented real recordings. Real-world results will likely be lower.`]);
-  if (ns.length) caveats.push(["Sample sizes are small.", `Per-language groups have ${Math.min(...ns)}–${Math.max(...ns)} samples. Treat percentages as indicative.`]);
-  caveats.push(["Timing to the first dangerous ask", `is measured only on the ${S.ask_labelled} scam samples with a labelled ask. It is never shown for live calls.`]);
-  const tiles = [
-    ["Scam recall (full audio)", `${A.caught} / ${S.scam}`, pct(A.caught, S.scam), `scam samples that got an amber or red warning · ${wil(A.caught, S.scam)}`, ""],
-    ["Genuine calls with a false alarm", `${A.false_alarms} / ${S.genuine}`, pct(A.false_alarms, S.genuine), `${A.false_red} of them red · ${wil(A.false_alarms, S.genuine)}`, A.false_red ? `${A.false_red} red false alarm` : ""],
-    ["Warned before the first dangerous ask", `${A.before_ask} / ${S.ask_labelled}`, pct(A.before_ask, S.ask_labelled), `labelled scam samples only · median lead ${A.median_lead_s} s`, ""],
-  ];
-  const all = r.failures || [], ff = state.failFilter;
   const th = (l, right) => `<th style="text-align:${right ? "right" : "left"};padding:8px;border-bottom:1.5px solid #17191E;font-size:14px">${l}</th>`;
-  const td = (v, right, bold) => `<td style="padding:10px 8px;border-bottom:1px solid #D6D0C2;text-align:${right ? "right" : "left"};vertical-align:top;${bold ? "font-weight:700" : ""}">${v}</td>`;
-  return `<section class="card"><div class="row-between"><h2 style="margin:0;font-size:clamp(26px,3.4vw,36px);font-weight:800">How well did it do on test samples?</h2>${r.example_data ? `<span class="tag" style="background:#FF5AD9;color:#17191E">EXAMPLE DATA — NOT RESULTS</span>` : ""}</div>
-      <div class="mono row" style="gap:4px 20px;font-size:13px;color:#3B3F47"><span>Source: ${esc(REPORT_URL)}</span><span>Generated: ${esc(r.generated_at || "")}</span>${r.pipeline ? `<span>${esc(Object.values(r.pipeline).join(" · "))}</span>` : ""}</div>
-      <div style="display:flex;flex-direction:column;gap:8px;padding:14px 16px;border-radius:12px;background:#17191E;color:#FBF9F4">${caveats.map(([k, v]) => `<span style="font-size:16px;line-height:1.45"><strong>${esc(k)}</strong> ${esc(v)}</span>`).join("")}</div></section>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:14px">${tiles.map(([l, f, p, sub, flag]) => `<div class="card" style="gap:6px;border-radius:16px;padding:18px"><span style="font-size:15px;font-weight:700">${l}</span><span style="font-size:40px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums">${esc(f)}</span><span style="font-size:16px;font-weight:700">${p}</span><span style="font-size:14px;color:#3B3F47">${esc(sub)}</span>${flag ? `<span style="align-self:flex-start;font-size:13px;font-weight:700;padding:3px 8px;border-radius:6px;background:#B3261E;color:#fff">${esc(flag)}</span>` : ""}</div>`).join("")}</div>
-    <section class="card"><h3 class="t">Text vs audio</h3><p class="note">${esc(r.text_mode_note || "")}</p><div style="overflow-x:auto"><table class="tbl"><thead><tr>${th("Measure")}${th("Text only", 1)}${th("Full audio", 1)}</tr></thead><tbody>
-      ${[["Scam recall", `${X.caught}/${S.scam} · ${pct(X.caught, S.scam)}`, `${A.caught}/${S.scam} · ${pct(A.caught, S.scam)}`], ["False alarms", `${X.false_alarms}/${S.genuine}`, `${A.false_alarms}/${S.genuine}`], ["Warned before ask", `${X.before_ask}/${S.ask_labelled}`, `${A.before_ask}/${S.ask_labelled}`]].map(([k, a, b]) => `<tr>${td(k, 0, 1)}${td(esc(a), 1)}${td(esc(b), 1, 1)}</tr>`).join("")}</tbody></table></div></section>
-    ${ls.length ? `<section class="card"><h3 class="t">By language</h3><div style="overflow-x:auto"><table class="tbl" style="min-width:640px"><thead><tr>${th("Language")}${th("Samples")}${th("Recall · audio", 1)}${th("Recall · text", 1)}${th("False alarms · audio", 1)}</tr></thead><tbody>${ls.map((l) => `<tr>${td(esc(l.lang), 0, 1)}${td(`${l.scam} scam · ${l.genuine} genuine`)}${td(`${l.audio.caught}/${l.scam}`, 1)}${td(`${l.text.caught}/${l.scam}`, 1)}${td(`${l.audio.false_alarms}/${l.genuine}`, 1)}</tr>`).join("")}</tbody></table></div></section>` : ""}
-    <section class="card"><div class="row-between"><h3 class="t">Failures</h3><div class="row" style="gap:6px">${[["all", `All (${all.length})`], ["missed", "Missed scams"], ["false_alarm", "False alarms"]].map(([k, l]) => `<button data-act="filter" data-arg="${k}" aria-pressed="${ff === k}" class="chip" style="background:${ff === k ? "#17191E" : "transparent"};color:${ff === k ? "#FBF9F4" : "#17191E"}">${l}</button>`).join("")}</div></div>
-      <div style="overflow-x:auto"><table class="tbl" style="min-width:640px"><thead><tr>${th("Sample")}${th("What went wrong")}${th("Cause")}${th("Failed in")}</tr></thead><tbody>${all.filter((x) => ff === "all" || x.type === ff).map((x) => `<tr>${td(`<span class="mono" style="font-weight:700">${esc(x.sample_id)}</span><br><span style="font-size:13px">${esc(x.lang)}</span>`)}${td(`<strong>${x.type === "missed" ? "Missed scam" : `False alarm · ${esc(x.level || "")}`}</strong><br>${esc(x.detail)}`)}${td(esc(x.cause))}${td(esc(x.path))}</tr>`).join("")}</tbody></table></div></section>
-    <p class="note">${esc(`${r.caught_rule || ""} ${r.false_alarm_rule || ""} ${r.before_ask_rule || ""}`)}</p>`;
+  const td = (v, right, bold) => `<td style="padding:10px 8px;border-bottom:1px solid #D6D0C2;text-align:${right ? "right" : "left"};vertical-align:top;${bold ? "font-weight:700" : ""}">${esc(v)}</td>`;
+  return `<section class="card"><div class="row-between"><h2 style="margin:0;font-size:clamp(26px,3.4vw,36px);font-weight:800">How did the detector do on test calls?</h2><span class="tag" style="background:#17191E;color:#FBF9F4">DEVELOPMENT SET · NOT LIVE CALLS</span></div>
+      <div class="mono row" style="gap:4px 20px;font-size:13px;color:#3B3F47"><span>Source: ${esc(REPORT_URL)}</span><span>${esc(r.dataset)}</span><span>${esc(r.provider)}</span>${r.commit ? `<span>commit ${esc(r.commit)}</span>` : ""}${r.when ? `<span>run ${esc(r.when)}</span>` : ""}${r.cost ? `<span>reported cost ${esc(r.cost)}</span>` : ""}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:14px 16px;border-radius:12px;background:#17191E;color:#FBF9F4">${r.caveats.map((c) => `<span style="font-size:16px;line-height:1.45">${esc(c)}</span>`).join("")}</div></section>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:14px">${r.tiles.map((t) => `<div class="card" style="gap:6px;border-radius:16px;padding:18px"><span style="font-size:15px;font-weight:700">${esc(t.label)}</span><span style="font-size:40px;font-weight:800;line-height:1.05;font-variant-numeric:tabular-nums">${esc(t.frac)}</span><span style="font-size:16px;font-weight:700">${esc(t.pct)}</span><span style="font-size:14px;color:#3B3F47">${esc(t.sub)}</span>${t.flag ? `<span style="align-self:flex-start;font-size:13px;font-weight:700;padding:3px 8px;border-radius:6px;background:#B3261E;color:#fff">${esc(t.flag)}</span>` : ""}</div>`).join("")}</div>
+    ${r.languages.length ? `<section class="card"><h3 class="t">By language</h3><div style="overflow-x:auto"><table class="tbl" style="min-width:560px"><thead><tr>${th("Language")}${th("Scams → red", 1)}${th("Genuine → red", 1)}${th("Red before ask", 1)}${th("Genuine → amber", 1)}</tr></thead><tbody>${r.languages.map((l) => `<tr>${td(l.lang, 0, 1)}${td(l.recall, 1)}${td(l.falseRed, 1)}${td(l.beforeAsk, 1)}${td(l.genuineAmber, 1)}</tr>`).join("")}</tbody></table></div></section>` : ""}
+    <section class="card"><div class="row-between"><h3 class="t">Every call</h3>${r.latency ? `<span class="sub">${esc(r.latency.calls)} analysis calls · median ${esc(r.latency.verifier)} each · median delay after a segment ${esc(r.latency.delay)}</span>` : ""}</div>
+      <div style="overflow-x:auto"><table class="tbl" style="min-width:560px"><thead><tr>${th("Call")}${th("Language")}${th("First warning", 1)}${th("First red", 1)}${th("Analysis")}${th("Failures")}</tr></thead><tbody>${r.calls.map((c) => `<tr>${td(c.id, 0, 1)}${td(c.lang)}${td(c.firstWarning, 1)}${td(c.firstRed, 1)}${td(c.status)}${td(c.failures || "none")}</tr>`).join("")}</tbody></table></div></section>
+    <p class="note">${esc(Object.entries(r.definitions).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}.`).join(" "))} Produced by backend/evaluation/run_pilot.py; the app shows the file as-is.</p>`;
 }
 
 const BANNERS = {

@@ -166,3 +166,12 @@ test("access refusals and the hourly limit are their own failures, not generic s
   assert.equal(quota.phase, "quota");
   assert.match(quota.error, /20 sessions per hour/);
 });
+
+test("on-screen warning text is exactly the reviewed copy in docs/warning-copy.md", async () => {
+  const { WARNING_COPY } = await import("./session-core.js");
+  const doc = readFileSync(new URL("../../docs/warning-copy.md", import.meta.url), "utf8");
+  const rows = [...doc.matchAll(/^\| (?:Amber|Red) \| [^|]+ \| (.+?) \| `assets\/warnings\/(\w+-\w+)\.wav` \|$/gm)];
+  assert.equal(rows.length, 6);
+  for (const [, text, key] of rows) assert.equal(WARNING_COPY[key], text, key);
+  for (const lang of LANGS.map((l) => l.code)) for (const level of ["amber", "red"]) assert.ok(WARNING_COPY[`${level}-${lang}`]);
+});
