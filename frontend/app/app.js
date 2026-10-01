@@ -17,6 +17,13 @@ const SAMPLES = [ // synthetic TTS from backend/spike/make_samples.sh, served fr
   { id: "hi_en_kyc", title: "KYC update call", lang: "hi", langName: "Hindi–English", kind: "synthetic", label: "scam" },
   { id: "hi_en_bank_genuine", title: "Bank call about a declined card", lang: "hi", langName: "Hindi–English", kind: "synthetic", label: "genuine" },
   { id: "hi_en_delivery_genuine", title: "Delivery at the door", lang: "hi", langName: "Hindi–English", kind: "synthetic", label: "genuine" },
+  { id: "te_en_customs_parcel", title: "Courier parcel call", lang: "te", langName: "Telugu–English", kind: "synthetic", label: "scam" },
+  { id: "te_en_power_cut_scam", title: "Electricity bill call", lang: "te", langName: "Telugu–English", kind: "synthetic", label: "scam" },
+  { id: "te_en_power_cut_notice", title: "Power cut notice", lang: "te", langName: "Telugu–English", kind: "synthetic", label: "genuine" },
+  { id: "te_en_bank_callback", title: "Bank complaint callback", lang: "te", langName: "Telugu–English", kind: "synthetic", label: "genuine" },
+  { id: "hi_en_upi_refund", title: "Refund from an online shop", lang: "hi", langName: "Hindi–English", kind: "synthetic", label: "scam" },
+  { id: "hi_en_job_fee", title: "Part-time job offer", lang: "hi", langName: "Hindi–English", kind: "synthetic", label: "scam" },
+  { id: "hi_en_emi_reminder", title: "Loan EMI reminder", lang: "hi", langName: "Hindi–English", kind: "synthetic", label: "genuine" },
 ];
 const TONES = {
   neutral: { bg: "#FBF9F4", ink: "#17191E", border: "#17191E", rule: "#CFC8B8", quoteBg: "#EFEBE2", btnBg: "#17191E", btnInk: "#FBF9F4", pattern: "" },

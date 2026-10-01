@@ -30,7 +30,7 @@ Put the doubtful call on speaker, keep a phone or laptop running CallKavach next
 | Mode | What runs |
 |---|---|
 | **1 · Live microphone** | Real microphone → speech-to-text → detector |
-| **2 · Analyse sample audio** | A synthetic call WAV through the same real pipeline, compared with its label afterwards |
+| **2 · Analyse sample audio** | One of 11 synthetic Hindi–English and Telugu–English calls (6 scams, 5 genuine look-alikes) through the same real pipeline, compared with its label afterwards |
 | **3 · Recorded replay** | A session log saved from mode 1 or 2. Nothing runs; it's for presentations |
 | **Evaluation report** | Shows a sanitised export of a development replay run (numbers only), served from outside the repository, if one has been published |
 
@@ -85,6 +85,7 @@ synthetic sample WAV ──────┴─> AudioWorklet → 16 kHz PCM ─We
 
   Usage: 75 analysis calls, 13.92 in provider-reported cost units, partial. The pilot's language review (10/10 accepted) was recorded after the run. The raw report stays in the owner's private QA record; only the sanitised export is published.
 - **Development replay:** `backend/evaluation/run_pilot.py` measures RED recall, RED false alarms, warned-before-first-ask and amber rates on the synthetic multilingual pilot. Publish a result with `node frontend/app/export-eval-report.mjs RAW.json PUBLIC.json`. This keeps only numbers, status values and failure categories, and refuses an output path inside the repository. The server then serves that file through `CALLKAVACH_EVAL_REPORT` (see [DEPLOY.md](DEPLOY.md)), only after checking it is the sanitised form. Live results never go into Git. Until a result is published, no score is claimed.
+- **Seven more synthetic calls (not yet run live):** a UPI "refund" collect request, a task-job fee, an electricity disconnection with an AnyDesk install, a customs parcel with a police threat, a loan EMI reminder, a power-cut notice and a bank complaint callback. They have sentence pauses, so warnings can arrive during the call.
 - **Not yet measured:** real speakerphone audio, phone-to-phone latency, and the planned 300-call held-out test (not built in time).
 
 ## Limitations
