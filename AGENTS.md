@@ -13,3 +13,7 @@ Commit and push on `navadeep/backend-evaluation` under Navadeep's own configured
 ## If you are working on another assignment
 
 Follow that assignment's explicit scope. The Navadeep file does not authorize changes outside his module. Keep teammate contributions in branches and let the owner approve and merge pull requests.
+
+## If you are working for Harshit on the 1 October handoff
+
+Read `harshit.md` and `OCT1-TEAM-HANDOFF.md`. Stay within the assigned offline content, static warning assets, language review, QA evidence and PR review. Cyril owns every frontend code change, API credentials, live-provider run, deployment and final submission. Work from current `main` on a separate branch under Harshit's Git identity; stage only assigned files, run relevant offline checks and `git diff --cached --check`, then open a PR for Cyril's code-owner approval. Harshit has collaborator write access and may merge another teammate's eligible PR after Cyril approves its current head; never merge your own PR or bypass branch protection.
