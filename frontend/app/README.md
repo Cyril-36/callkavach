@@ -11,7 +11,7 @@ Open http://127.0.0.1:8766/. For a local run with no paid calls, put `STT_PROVID
 ## Modes
 
 1. **Live microphone** (`#live`). It captures the speakerphone through this device's microphone and streams 16 kHz PCM to this page's own `/ws/audio`.
-2. **Analyse sample audio** (`#sample`). It sends a synthetic WAV from `/samples/` through the same real pipeline, paced in real time. Generate the WAVs with `bash backend/spike/make_samples.sh`; they are not in Git, so a server without them shows "Couldn't load the sample audio". The scam or genuine label is compared only when the run is complete.
+2. **Analyse sample audio** (`#sample`). It sends a synthetic WAV from `/samples/` through the same real pipeline, paced in real time. Four offline-generated synthetic WAVs are included in the repository so this mode works in a clean checkout. To regenerate them on macOS, run `bash backend/spike/make_samples.sh`. The scam or genuine label is compared only when the run is complete.
 3. **Recorded replay** (`#replay`). It plays back a session log that you saved from Live or Sample mode with **Save session log**. The log is a local file (`callkavach.session_log.v1`) containing the relay's own messages, transcripts included. It is never uploaded and never committed. Nothing runs during replay.
 4. **Evaluation report** (`#eval`). It reads the static file `eval/report.json` next to this page and shows nothing if the file is missing. No example numbers are shipped.
 
@@ -48,4 +48,4 @@ Browser lifecycle tests: run the relay with `STT_PROVIDER=mock LLM_PROVIDER=off`
 ## Not done here
 
 - **Phone access:** getUserMedia needs https, and the relay only trusts `localhost`, `127.0.0.1` and `[::1]` as Host. A phone can reach the app only after deployment with a configured host.
-- **Warning wording:** copy in Hindi and Telugu is pending `docs/warning-copy.md`, and the on-screen text is English.
+- **Warning wording:** Hindi and Telugu spoken-warning copy is in `docs/warning-copy.md`; the on-screen text is English. Pilot-call language review is still pending.
