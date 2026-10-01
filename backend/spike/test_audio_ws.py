@@ -1207,3 +1207,21 @@ def test_provider_error_text_is_safe_for_the_browser():
     assert error_detail(Resp({"error": "quota exceeded"})) == "quota exceeded"  # a string error cannot raise
     assert error_detail(Resp(None, text="<html>Bad gateway</html>")) == "<html>Bad gateway</html>"
     assert "exceeded your current quota" in error_detail(Resp({"error": {"message": "You exceeded your current quota"}}))
+
+
+def test_refusals_and_starts_are_logged_without_secrets(client, monkeypatch, caplog):
+    import logging
+    monkeypatch.setattr(audio_ws, "ACCESS_CODE", "kavach-demo")
+    monkeypatch.setattr(audio_ws, "ACCESS_DENIED_DELAY_S", 0.0)
+    caplog.set_level(logging.INFO, logger="callkavach.relay")
+    with client.websocket_connect("/ws/audio") as ws:
+        ws.send_json({**START, "access_code": "wrong-guess"})
+        expect_error(ws, "access_denied", 1008)
+    with client.websocket_connect("/ws/audio") as ws:
+        open_session(ws, {**START, "access_code": "kavach-demo"})
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/ws/audio", headers={"host": "evil.example"}) as ws:
+            ws.receive_json()
+    text = caplog.text
+    assert "access_denied" in text and "session_started" in text and "refused_upgrade" in text
+    assert "wrong-guess" not in text and "kavach-demo" not in text, "codes must never be logged"

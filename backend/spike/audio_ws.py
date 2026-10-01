@@ -35,6 +35,7 @@ Both session checks run before any provider connection, so a refused session cos
 import asyncio
 import hmac
 import json
+import logging
 import os
 import time
 from collections import deque
@@ -47,6 +48,19 @@ from fastapi.staticfiles import StaticFiles
 from detector import Segment, SessionDetector
 from verifier_config import make_verifier
 from stt_provider import ProviderError, default_connector
+
+# Abuse monitoring: one line per refused or started session. Never the access code, audio or transcript.
+log = logging.getLogger("callkavach.relay")
+if not log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    log.addHandler(_handler)
+    log.setLevel(logging.INFO)
+
+
+def _peer(ws: WebSocket) -> str:
+    return ws.client.host if ws.client else "unknown"  # the real client with uvicorn --proxy-headers
+
 
 SAMPLE_RATE = 16000
 BYTES_PER_SAMPLE = 2
@@ -161,10 +175,13 @@ def _trusted_request(ws: WebSocket) -> bool:
 async def audio(ws: WebSocket) -> None:
     global active_sessions
     if not _trusted_request(ws):
+        log.warning("refused_upgrade peer=%s host=%r origin=%r", _peer(ws), ws.headers.get("host", "")[:100],
+                    (ws.headers.get("origin") or "")[:100])
         await ws.close(code=1008)  # before accept: the upgrade is refused with HTTP 403, no session is opened
         return
     await ws.accept()
     if active_sessions >= MAX_SESSIONS:
+        log.warning("too_many_sessions peer=%s active=%d", _peer(ws), active_sessions)
         await _fail(ws, "too_many_sessions", f"At most {MAX_SESSIONS} sessions at once.", 1013)
         return
     active_sessions += 1
@@ -357,6 +374,7 @@ async def _session(ws: WebSocket) -> None:
     if ACCESS_CODE is not None:
         code = start.get("access_code")
         if not isinstance(code, str) or not hmac.compare_digest(code.encode(), ACCESS_CODE.encode()):
+            log.warning("access_denied peer=%s code_sent=%s", _peer(ws), isinstance(code, str) and bool(code))
             await asyncio.sleep(ACCESS_DENIED_DELAY_S)
             await _fail(ws, "access_denied", "Access code missing or wrong.", 1008)
             return
@@ -365,6 +383,7 @@ async def _session(ws: WebSocket) -> None:
         while _session_starts and now - _session_starts[0] > 3600:
             _session_starts.popleft()
         if len(_session_starts) >= MAX_SESSIONS_PER_HOUR:
+            log.warning("session_quota peer=%s limit=%d", _peer(ws), MAX_SESSIONS_PER_HOUR)
             await _fail(ws, "session_quota", f"This server's limit of {MAX_SESSIONS_PER_HOUR} sessions per hour "
                                              "has been reached. Try again later.", 1013)
             return
@@ -386,6 +405,7 @@ async def _session(ws: WebSocket) -> None:
         relay.detector = SessionDetector(verifier, send=relay.send_built, clock=relay.session_ms,
                                          call_timeout_s=DETECTOR_CALL_TIMEOUT_S)
     tasks = [asyncio.create_task(relay.guard(relay.pump())), asyncio.create_task(relay.guard(relay.read()))]
+    log.info("session_started peer=%s language=%s active=%d", _peer(ws), language, active_sessions)
     try:
         await relay.send({"type": "ready", **EXPECTED_FORMAT, "language_code": language,
                           "max_frame_bytes": MAX_FRAME_BYTES, "max_session_seconds": MAX_SESSION_SECONDS})
@@ -414,6 +434,7 @@ async def _receive_audio(ws: WebSocket, relay: _Relay) -> None:
         try:
             msg = await asyncio.wait_for(ws.receive(), RECEIVE_IDLE_TIMEOUT_S)
         except asyncio.TimeoutError:  # a silent client must not hold a paid transcription session open
+            log.warning("idle_timeout peer=%s", _peer(ws))
             await _fail(ws, "idle_timeout", f"No audio for {RECEIVE_IDLE_TIMEOUT_S:g} s; session closed.", 1008)
             return
         if msg["type"] == "websocket.disconnect" or relay.failure:

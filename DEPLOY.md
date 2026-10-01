@@ -36,6 +36,29 @@ The host sets `PORT`.
 
 The Origin check and a shared code are not strong authentication. They're meant to stop casual misuse during the demo. Rotate the code if it leaks, and take the service down after judging.
 
+## Monitoring
+
+The relay logs one line per event to stdout, which most hosts show in their log view. It never logs the access code, audio or transcripts:
+
+| Log line | Meaning |
+|---|---|
+| `session_started` | A paid session opened |
+| `access_denied` | A wrong or missing code |
+| `session_quota` | The hourly cap was reached |
+| `too_many_sessions` | More than 4 sessions at once |
+| `idle_timeout` | A client went silent for 30 s |
+| `refused_upgrade` | Wrong Host or Origin |
+
+A burst of `access_denied` or `refused_upgrade` lines means someone is probing. Rotate the code, and lower the cap or take the service down.
+
+## If it stays online after the demo
+
+The shared code, Origin check and in-memory hourly cap are meant for a short, supervised demo. For longer use, follow the [OWASP WebSocket Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/WebSocket_Security_Cheat_Sheet.html) and add:
+- **Per-user authentication:** a short-lived signed token per user, checked at the upgrade, instead of one shared code.
+- **Per-client rate limits:** per IP or per token, at the proxy or in a shared store (Redis), so the limits survive restarts and multiple instances.
+- **Abuse monitoring and alerting:** alerts on the log lines above, plus provider-side spend alerts on Sarvam and AICredits.
+- **A privacy notice and consent flow** suitable for real calls, and a data-processing review of the providers' retention.
+
 ## After deploying
 
 1. **Check the app loads.** Open `https://<host>/` on a laptop, enter the access code in **Settings**, and run one **sample** (a paid call). It should finish "fully analysed".
